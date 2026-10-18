@@ -14,6 +14,8 @@ import {
   LogOut,
   Smartphone,
   ShieldCheck,
+  RotateCcw,
+  Trash2,
 } from 'lucide-react';
 import { UserProfile } from '../types';
 import {
@@ -33,6 +35,7 @@ interface Props {
   userEmail: string | null;
   onSignOut: () => void;
   pendingTasksSummary: string;
+  onResetAllData: () => Promise<void>;
 }
 
 const DAYS_OF_WEEK = [
@@ -51,7 +54,12 @@ export const SettingsView: React.FC<Props> = ({
   userEmail,
   onSignOut,
   pendingTasksSummary,
+  onResetAllData,
 }) => {
+  // Reset confirmation modal
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+
   // Push status
   const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
   const [pushLoading, setPushLoading] = useState(false);
@@ -574,6 +582,67 @@ export const SettingsView: React.FC<Props> = ({
           </label>
         </div>
       </div>
+
+      {/* ======================================================== */}
+      {/* 5. REINICIAR DATOS A CERO (LIENZO EN BLANCO)             */}
+      {/* ======================================================== */}
+      <div className="card-dark rounded-2xl p-6 space-y-4 border border-rose-500/20">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-rose-500/15 text-rose-400 flex items-center justify-center">
+            <Trash2 className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-white">Reiniciar a Cero (Lienzo en Blanco)</h2>
+            <p className="text-xs text-zinc-400">
+              Vacía todas tus tareas, deberes, exámenes y sesiones para comenzar completamente de cero.
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={() => setShowResetConfirm(true)}
+          className="px-4 py-2.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-500/40 text-xs font-semibold transition flex items-center gap-2 cursor-pointer"
+        >
+          <RotateCcw className="w-4 h-4 text-rose-400" />
+          <span>Vaciar Todo y Empezar de Cero</span>
+        </button>
+      </div>
+
+      {/* Reset Confirmation Modal */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-[#12161f] border border-rose-500/40 p-6 shadow-2xl text-zinc-200 space-y-4">
+            <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <h3 className="text-base font-bold text-white text-center">¿Confirmar reinicio total?</h3>
+            <p className="text-xs text-zinc-400 text-center leading-relaxed">
+              Esta acción eliminará todos los deberes, exámenes, asignaturas y sesiones registradas, dejándote la aplicación 100% limpia sin nada predeterminado.
+            </p>
+            <div className="flex gap-2 pt-2">
+              <button
+                disabled={isResetting}
+                onClick={() => setShowResetConfirm(false)}
+                className="flex-1 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-200 transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                disabled={isResetting}
+                onClick={async () => {
+                  setIsResetting(true);
+                  await onResetAllData();
+                  setIsResetting(false);
+                  setShowResetConfirm(false);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-semibold text-white transition cursor-pointer"
+              >
+                {isResetting ? 'Vaciando...' : 'Sí, vaciar todo'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ======================================================== */}
       {/* 5. CUENTA Y CIERRE DE SESIÓN                             */}

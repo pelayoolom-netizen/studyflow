@@ -11,200 +11,20 @@ import {
 export type SyncState = 'synced' | 'saving' | 'local' | 'error';
 
 // Initial Starter Data for a clean, rich first impression
-export const DEFAULT_SUBJECTS: Subject[] = [
-  {
-    id: 'sub-matematicas',
-    name: 'Matemáticas II',
-    color: '#10b981', // emerald
-    teacher: 'Prof. García',
-    weekly_goal_minutes: 240,
-    notes: 'Cálculo diferencial, integrales y álgebra matricial.',
-  },
-  {
-    id: 'sub-fisica',
-    name: 'Física',
-    color: '#3b82f6', // blue
-    teacher: 'Dra. Méndez',
-    weekly_goal_minutes: 180,
-    notes: 'Campo electromagnético y termodinámica.',
-  },
-  {
-    id: 'sub-quimica',
-    name: 'Química',
-    color: '#8b5cf6', // purple
-    teacher: 'Prof. Romero',
-    weekly_goal_minutes: 150,
-    notes: 'Química orgánica y equilibrios ácido-base.',
-  },
-  {
-    id: 'sub-historia',
-    name: 'Historia de España',
-    color: '#f59e0b', // amber
-    teacher: 'Prof. Navas',
-    weekly_goal_minutes: 120,
-    notes: 'Temario EVAU y comentarios de texto.',
-  },
-  {
-    id: 'sub-ingles',
-    name: 'Inglés Avanzado',
-    color: '#06b6d4', // cyan
-    teacher: 'Ms. Taylor',
-    weekly_goal_minutes: 90,
-    notes: 'Preparación C1 Advanced y ensayos argumentativos.',
-  },
-];
+// Initial Clean State: Starts 100% empty on first opening as requested by user
+export const DEFAULT_SUBJECTS: Subject[] = [];
+export const DEFAULT_ASSIGNMENTS: Assignment[] = [];
+export const DEFAULT_EXAMS: Exam[] = [];
+export const DEFAULT_STUDY_SESSIONS: StudySession[] = [];
 
-// Helper to calculate date relative to today
-const getRelativeDateISO = (daysOffset: number, hours = 18, minutes = 0) => {
-  const d = new Date();
-  d.setDate(d.getDate() + daysOffset);
-  d.setHours(hours, minutes, 0, 0);
-  return d.toISOString();
-};
-
-export const DEFAULT_ASSIGNMENTS: Assignment[] = [
-  {
-    id: 'asg-1',
-    subject_id: 'sub-matematicas',
-    title: 'Boletín de Integrales Definidas (ejercicios 12 al 25)',
-    description: 'Calcular el área entre dos curvas y resolver problemas de optimización.',
-    due_date: getRelativeDateISO(0, 20, 0), // Today!
-    priority: 'alta',
-    status: 'pendiente',
-    estimated_minutes: 60,
-    actual_minutes: 0,
-    created_at: getRelativeDateISO(-2),
-    notes: 'Revisar apuntes de la regla de Barrow.',
-  },
-  {
-    id: 'asg-2',
-    subject_id: 'sub-fisica',
-    title: 'Informe de Laboratorio: Péndulo Simple',
-    description: 'Redactar conclusiones y calcular incertidumbre en las mediciones.',
-    due_date: getRelativeDateISO(-1, 23, 59), // Atrasado
-    priority: 'alta',
-    status: 'pendiente',
-    estimated_minutes: 45,
-    actual_minutes: 15,
-    created_at: getRelativeDateISO(-4),
-    notes: 'Falta añadir las gráficas del ajuste por mínimos cuadrados.',
-  },
-  {
-    id: 'asg-3',
-    subject_id: 'sub-historia',
-    title: 'Comentario de Texto: Constitución de 1812',
-    description: 'Análisis de soberanía nacional y separación de poderes.',
-    due_date: getRelativeDateISO(2, 17, 30),
-    priority: 'media',
-    status: 'pendiente',
-    estimated_minutes: 50,
-    actual_minutes: 0,
-    created_at: getRelativeDateISO(-1),
-  },
-  {
-    id: 'asg-4',
-    subject_id: 'sub-quimica',
-    title: 'Problemas de pH y valoraciones redox',
-    description: 'Ejercicios de autoevaluación del bloque 4.',
-    due_date: getRelativeDateISO(-3, 14, 0),
-    priority: 'media',
-    status: 'completado',
-    estimated_minutes: 40,
-    actual_minutes: 35,
-    completed_at: getRelativeDateISO(-2, 18, 20),
-    created_at: getRelativeDateISO(-5),
-  },
-  {
-    id: 'asg-5',
-    subject_id: 'sub-ingles',
-    title: 'Essay: The impact of AI on higher education',
-    description: '280 words, formal style, using inversion and advanced linkers.',
-    due_date: getRelativeDateISO(4, 21, 0),
-    priority: 'baja',
-    status: 'pendiente',
-    estimated_minutes: 45,
-    actual_minutes: 0,
-    created_at: getRelativeDateISO(-1),
-  },
-];
-
-export const DEFAULT_EXAMS: Exam[] = [
-  {
-    id: 'ex-1',
-    subject_id: 'sub-matematicas',
-    name: 'Examen Bloque II: Análisis y Cálculo Integral',
-    exam_date: getRelativeDateISO(3, 9, 30),
-    syllabus: 'Límites, continuidad, derivadas, optimización e integrales inmediatas.',
-    priority: 'alta',
-    status: 'pendiente',
-    max_grade: 10,
-    weight_percentage: 35,
-    notes: 'Traer calculadora no programable y regla.',
-    created_at: getRelativeDateISO(-10),
-  },
-  {
-    id: 'ex-2',
-    subject_id: 'sub-fisica',
-    name: 'Parcial de Electromagnetismo',
-    exam_date: getRelativeDateISO(8, 11, 0),
-    syllabus: 'Ley de Coulomb, campo eléctrico, potencial y circuitos RLC.',
-    priority: 'alta',
-    status: 'pendiente',
-    max_grade: 10,
-    weight_percentage: 40,
-    created_at: getRelativeDateISO(-7),
-  },
-  {
-    id: 'ex-3',
-    subject_id: 'sub-historia',
-    name: 'Examen Parcial: Siglo XIX en España',
-    exam_date: getRelativeDateISO(-5, 10, 0),
-    syllabus: 'Guerra de la Independencia, reinado de Fernando VII y regencias.',
-    priority: 'media',
-    status: 'corregido',
-    grade: 9.25,
-    max_grade: 10,
-    weight_percentage: 25,
-    notes: 'Excelente redacción en el comentario de texto.',
-    created_at: getRelativeDateISO(-20),
-  },
-  {
-    id: 'ex-4',
-    subject_id: 'sub-quimica',
-    name: 'Control Rápido de Estequiometría',
-    exam_date: getRelativeDateISO(-12, 12, 0),
-    syllabus: 'Reactivo limitante, pureza y rendimiento.',
-    priority: 'media',
-    status: 'corregido',
-    grade: 8.50,
-    max_grade: 10,
-    weight_percentage: 20,
-    created_at: getRelativeDateISO(-25),
-  },
-];
-
-export const DEFAULT_STUDY_SESSIONS: StudySession[] = [
-  {
-    id: 'ses-1',
-    subject_id: 'sub-matematicas',
-    description: 'Práctica de derivadas complejas y regla de la cadena',
-    start_time: getRelativeDateISO(0, 8, 30),
-    end_time: getRelativeDateISO(0, 9, 15),
-    duration_minutes: 45,
-    completed: true,
-    created_at: getRelativeDateISO(0, 9, 15),
-  },
-  {
-    id: 'ses-2',
-    subject_id: 'sub-fisica',
-    description: 'Repaso fórmulas de potencial eléctrico',
-    start_time: getRelativeDateISO(0, 11, 0),
-    end_time: getRelativeDateISO(0, 11, 30),
-    duration_minutes: 30,
-    completed: true,
-    created_at: getRelativeDateISO(0, 11, 30),
-  },
-];
+// Garantizar que la primera vez que se abre la aplicación empiece 100% limpia sin exámenes ni tareas ficticias
+if (typeof window !== 'undefined' && !localStorage.getItem('studyflow_clean_v3')) {
+  localStorage.removeItem('studyflow_assignments');
+  localStorage.removeItem('studyflow_exams');
+  localStorage.removeItem('studyflow_study_sessions');
+  localStorage.removeItem('studyflow_subjects');
+  localStorage.setItem('studyflow_clean_v3', 'true');
+}
 
 export const DEFAULT_PERIODS: AcademicPeriod[] = [
   {
@@ -727,6 +547,32 @@ class DataService {
       console.error('Error importing backup:', err);
       return false;
     }
+  }
+
+  // Reiniciar todos los datos a cero (lienzo limpio)
+  async resetAllData(): Promise<void> {
+    this.setLocal('subjects', []);
+    this.setLocal('assignments', []);
+    this.setLocal('exams', []);
+    this.setLocal('study_sessions', []);
+
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        const { data: user } = await supabase.auth.getUser();
+        if (user?.user) {
+          await Promise.allSettled([
+            supabase.from('assignments').delete().eq('user_id', user.user.id),
+            supabase.from('exams').delete().eq('user_id', user.user.id),
+            supabase.from('study_sessions').delete().eq('user_id', user.user.id),
+            supabase.from('subjects').delete().eq('user_id', user.user.id),
+          ]);
+        }
+      } catch (err) {
+        console.warn('Error resetting cloud tables:', err);
+      }
+    }
+    this.setSyncState(supabase ? 'synced' : 'local');
   }
 }
 

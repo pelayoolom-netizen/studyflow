@@ -138,7 +138,9 @@ export const DashboardView: React.FC<Props> = ({
               {greeting}, <span className="text-emerald-400">{userName}</span>
             </h1>
             <p className="text-xs md:text-sm text-zinc-400 max-w-xl">
-              {pendingTotal === 0
+              {totalTasks === 0
+                ? '¡Bienvenido a StudyFlow! Tu central académica está lista y limpia. Empieza creando tus asignaturas, deberes o exámenes con los botones rápidos.'
+                : pendingTotal === 0
                 ? '¡Extraordinario! No tienes tareas pendientes para hoy. Puedes aprovechar para avanzar temario o registrar una sesión de estudio.'
                 : `Tienes ${dueTodayAssignments.length} deberes programados para hoy${
                     overdueAssignments.length > 0 ? ` y ${overdueAssignments.length} pendientes con retraso` : ''
@@ -363,15 +365,19 @@ export const DashboardView: React.FC<Props> = ({
                 <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-400 mx-auto flex items-center justify-center">
                   <CheckCircle2 className="w-6 h-6" />
                 </div>
-                <h3 className="text-sm font-bold text-white">¡Al día! Todo completado</h3>
+                <h3 className="text-sm font-bold text-white">
+                  {totalTasks === 0 ? 'Sin tareas creadas todavía' : '¡Al día! Todo completado'}
+                </h3>
                 <p className="text-xs text-zinc-400 max-w-sm mx-auto">
-                  No tienes tareas pendientes para hoy. Puedes crear nuevos deberes o repasar tus asignaturas.
+                  {totalTasks === 0
+                    ? 'Empieza organizando tu curso añadiendo tu primer deber o entrega pendiente.'
+                    : 'No tienes tareas pendientes para hoy. Puedes crear nuevos deberes o repasar tus asignaturas.'}
                 </p>
                 <button
                   onClick={onOpenNewAssignment}
                   className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition cursor-pointer"
                 >
-                  Añadir un nuevo deber
+                  {totalTasks === 0 ? 'Crear mi primer deber' : 'Añadir un nuevo deber'}
                 </button>
               </div>
             ) : (

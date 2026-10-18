@@ -532,7 +532,7 @@ export const ExamsView: React.FC<Props> = ({
 
               <div>
                 <label className="block text-[11px] font-semibold text-zinc-300 mb-1">
-                  Asignatura *
+                  Asignatura (opcional)
                 </label>
                 <select
                   value={subjectId}

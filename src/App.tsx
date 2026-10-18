@@ -361,6 +361,13 @@ export default function App() {
                 setUserEmail(null);
               }}
               pendingTasksSummary={pendingTasksSummary}
+              onResetAllData={async () => {
+                await dataService.resetAllData();
+                setAssignments([]);
+                setExams([]);
+                setSubjects([]);
+                setStudySessions([]);
+              }}
             />
           )}
         </main>
