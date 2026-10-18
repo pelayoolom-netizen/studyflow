@@ -18,6 +18,8 @@ interface Props {
   subjects: Subject[];
   onOpenNewAssignment: (initialDate?: string) => void;
   onOpenNewExam: (initialDate?: string) => void;
+  calendarFirstDay?: number;
+  defaultView?: CalendarViewMode;
 }
 
 type CalendarViewMode = 'month' | 'week' | 'day';
@@ -39,9 +41,11 @@ export const CalendarView: React.FC<Props> = ({
   subjects,
   onOpenNewAssignment,
   onOpenNewExam,
+  calendarFirstDay = 1,
+  defaultView = 'month',
 }) => {
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
-  const [viewMode, setViewMode] = useState<CalendarViewMode>('month');
+  const [viewMode, setViewMode] = useState<CalendarViewMode>(defaultView);
   const [selectedDay, setSelectedDay] = useState<Date>(new Date());
   const [filterSubject, setFilterSubject] = useState<string>('all');
   const [filterType, setFilterType] = useState<string>('all');
@@ -149,7 +153,10 @@ export const CalendarView: React.FC<Props> = ({
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
 
-    const firstDayIndex = (new Date(year, month, 1).getDay() + 6) % 7; // Spanish: Monday is 0
+    const firstDayIndex =
+      calendarFirstDay === 0
+        ? new Date(year, month, 1).getDay()
+        : (new Date(year, month, 1).getDay() + 6) % 7;
     const totalDays = new Date(year, month + 1, 0).getDate();
     const prevMonthTotalDays = new Date(year, month, 0).getDate();
 
@@ -301,14 +308,14 @@ export const CalendarView: React.FC<Props> = ({
         {/* Left: Monthly Grid (3 cols) */}
         <div className="lg:col-span-3 card-dark rounded-2xl p-4 md:p-6 space-y-4">
           {/* Weekday headers */}
+          {/* Weekday headers */}
           <div className="grid grid-cols-7 text-center text-xs font-bold text-zinc-400 uppercase tracking-wider pb-2 border-b border-zinc-800">
-            <span>Lun</span>
-            <span>Mar</span>
-            <span>Mié</span>
-            <span>Jue</span>
-            <span>Vie</span>
-            <span>Sáb</span>
-            <span>Dom</span>
+            {(calendarFirstDay === 0
+              ? ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+              : ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+            ).map((dayName, i) => (
+              <span key={i}>{dayName}</span>
+            ))}
           </div>
 
           {/* Days Grid */}

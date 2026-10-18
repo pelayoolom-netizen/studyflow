@@ -136,68 +136,87 @@ export const Navigation: React.FC<Props> = ({
       {/* ======================================================== */}
       {/* MOBILE BOTTOM NAVIGATION BAR (Visible below md)          */}
       {/* ======================================================== */}
+      {/* ======================================================== */}
+      {/* MOBILE BOTTOM NAVIGATION BAR (Visible below md)          */}
+      {/* ======================================================== */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0d1017]/95 backdrop-blur-md border-t border-[#1a2230] z-40 safe-bottom">
-        <div className="flex items-center justify-around px-1 py-1">
-          {navItems.slice(0, 5).map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id)}
-                className={`flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-[10px] font-medium transition cursor-pointer min-w-[56px] ${
-                  isActive ? 'text-emerald-400' : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <div
-                  className={`p-1 rounded-lg ${
-                    isActive ? 'bg-emerald-500/15 text-emerald-400' : 'text-zinc-400'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                </div>
-                <span className="mt-0.5 leading-tight">{item.label}</span>
-              </button>
-            );
-          })}
-
-          {/* More actions dropdown/modal button for mobile (Timer, Analytics, Settings) */}
+        <div className="grid grid-cols-6 items-center px-1 py-1">
+          {/* 1. Mi Día */}
           <button
-            onClick={() => {
-              if (activeTab === 'timer') setActiveTab('analytics');
-              else if (activeTab === 'analytics') setActiveTab('settings');
-              else setActiveTab('timer');
-            }}
-            className={`flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-[10px] font-medium transition cursor-pointer min-w-[56px] ${
-              ['timer', 'analytics', 'settings'].includes(activeTab)
-                ? 'text-emerald-400'
-                : 'text-zinc-400 hover:text-zinc-200'
+            onClick={() => setActiveTab('dashboard')}
+            className={`flex flex-col items-center justify-center py-1 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
+              activeTab === 'dashboard' ? 'text-emerald-400 font-bold' : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            <div
-              className={`p-1 rounded-lg ${
-                ['timer', 'analytics', 'settings'].includes(activeTab)
-                  ? 'bg-emerald-500/15 text-emerald-400'
-                  : 'text-zinc-400'
-              }`}
-            >
-              {activeTab === 'timer' ? (
-                <Timer className="w-4 h-4" />
-              ) : activeTab === 'analytics' ? (
-                <BarChart3 className="w-4 h-4" />
-              ) : (
-                <Settings className="w-4 h-4" />
-              )}
+            <div className={`p-1 rounded-lg ${activeTab === 'dashboard' ? 'bg-emerald-500/15 text-emerald-400' : ''}`}>
+              <LayoutDashboard className="w-4 h-4" />
             </div>
-            <span className="mt-0.5 leading-tight">
-              {activeTab === 'timer'
-                ? 'Estudio'
-                : activeTab === 'analytics'
-                ? 'Analíticas'
-                : activeTab === 'settings'
-                ? 'Ajustes'
-                : 'Más'}
-            </span>
+            <span className="mt-0.5 leading-tight truncate">Mi Día</span>
+          </button>
+
+          {/* 2. Deberes */}
+          <button
+            onClick={() => setActiveTab('assignments')}
+            className={`flex flex-col items-center justify-center py-1 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
+              activeTab === 'assignments' ? 'text-emerald-400 font-bold' : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <div className={`p-1 rounded-lg ${activeTab === 'assignments' ? 'bg-emerald-500/15 text-emerald-400' : ''}`}>
+              <CheckSquare className="w-4 h-4" />
+            </div>
+            <span className="mt-0.5 leading-tight truncate">Deberes</span>
+          </button>
+
+          {/* 3. Calendario */}
+          <button
+            onClick={() => setActiveTab('calendar')}
+            className={`flex flex-col items-center justify-center py-1 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
+              activeTab === 'calendar' ? 'text-emerald-400 font-bold' : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <div className={`p-1 rounded-lg ${activeTab === 'calendar' ? 'bg-emerald-500/15 text-emerald-400' : ''}`}>
+              <CalendarDays className="w-4 h-4" />
+            </div>
+            <span className="mt-0.5 leading-tight truncate">Cal.</span>
+          </button>
+
+          {/* 4. Exámenes */}
+          <button
+            onClick={() => setActiveTab('exams')}
+            className={`flex flex-col items-center justify-center py-1 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
+              activeTab === 'exams' ? 'text-emerald-400 font-bold' : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <div className={`p-1 rounded-lg ${activeTab === 'exams' ? 'bg-emerald-500/15 text-emerald-400' : ''}`}>
+              <GraduationCap className="w-4 h-4" />
+            </div>
+            <span className="mt-0.5 leading-tight truncate">Exámenes</span>
+          </button>
+
+          {/* 5. Estudio / Pomodoro */}
+          <button
+            onClick={() => setActiveTab('timer')}
+            className={`flex flex-col items-center justify-center py-1 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
+              activeTab === 'timer' ? 'text-emerald-400 font-bold' : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <div className={`p-1 rounded-lg ${activeTab === 'timer' ? 'bg-emerald-500/15 text-emerald-400' : ''}`}>
+              <Timer className="w-4 h-4" />
+            </div>
+            <span className="mt-0.5 leading-tight truncate">Estudio</span>
+          </button>
+
+          {/* 6. AJUSTES (DIRECTAMENTE VISIBLE Y ACCESIBLE SIEMPRE) */}
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`flex flex-col items-center justify-center py-1 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
+              activeTab === 'settings' ? 'text-emerald-400 font-bold' : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <div className={`p-1 rounded-lg ${activeTab === 'settings' ? 'bg-emerald-500/15 text-emerald-400' : ''}`}>
+              <Settings className="w-4 h-4" />
+            </div>
+            <span className="mt-0.5 leading-tight truncate">Ajustes</span>
           </button>
         </div>
       </nav>

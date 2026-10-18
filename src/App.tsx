@@ -41,9 +41,12 @@ export default function App() {
     id: 'local',
     full_name: 'Estudiante',
     daily_study_goal_minutes: 120,
-    reminder_time: '14:15',
+    reminder_time: '15:30',
     reminder_days: [1, 2, 3, 4, 5, 6, 7],
-    timezone: 'Europe/Madrid',
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Madrid',
+    theme: 'dark',
+    calendar_first_day: 1,
+    calendar_default_view: 'month',
     notify_daily_reminder: true,
     notify_upcoming_exams: true,
     notify_due_assignments: true,
@@ -264,6 +267,7 @@ export default function App() {
           syncState={syncState}
           userEmail={userEmail}
           onOpenAuth={() => setIsAuthOpen(true)}
+          onOpenSettings={() => setActiveTab('settings')}
         />
 
         <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto pb-24 md:pb-12">
@@ -355,6 +359,7 @@ export default function App() {
               profile={profile}
               onUpdateProfile={handleUpdateProfile}
               userEmail={userEmail}
+              syncState={syncState}
               onSignOut={() => {
                 const client = getSupabaseClient();
                 if (client) client.auth.signOut();
@@ -378,6 +383,10 @@ export default function App() {
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
         userEmail={userEmail}
+        onOpenSettings={() => {
+          setIsAuthOpen(false);
+          setActiveTab('settings');
+        }}
         onAuthSuccess={(email) => {
           setUserEmail(email);
           loadAllData();

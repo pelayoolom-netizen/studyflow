@@ -49,11 +49,14 @@ export const DEFAULT_PERIODS: AcademicPeriod[] = [
 
 export const DEFAULT_PROFILE: UserProfile = {
   id: 'local-user',
-  full_name: 'Estudiante StudyFlow',
+  full_name: 'Estudiante',
   daily_study_goal_minutes: 120,
-  reminder_time: '14:15',
+  reminder_time: '15:30',
   reminder_days: [1, 2, 3, 4, 5, 6, 7],
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Madrid',
+  theme: 'dark',
+  calendar_first_day: 1, // Lunes
+  calendar_default_view: 'month',
   notify_daily_reminder: true,
   notify_upcoming_exams: true,
   notify_due_assignments: true,
@@ -573,6 +576,42 @@ class DataService {
       }
     }
     this.setSyncState(supabase ? 'synced' : 'local');
+  }
+
+  // Borrar todos los datos locales de la aplicación
+  clearLocalData(): void {
+    if (typeof window !== 'undefined') {
+      const keys = Object.keys(localStorage);
+      keys.forEach((k) => {
+        if (k.startsWith('studyflow_')) {
+          localStorage.removeItem(k);
+        }
+      });
+    }
+  }
+
+  // Eliminar cuenta de usuario
+  async deleteAccount(): Promise<boolean> {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        const { data: user } = await supabase.auth.getUser();
+        if (user?.user) {
+          await Promise.allSettled([
+            supabase.from('assignments').delete().eq('user_id', user.user.id),
+            supabase.from('exams').delete().eq('user_id', user.user.id),
+            supabase.from('study_sessions').delete().eq('user_id', user.user.id),
+            supabase.from('subjects').delete().eq('user_id', user.user.id),
+            supabase.from('profiles').delete().eq('id', user.user.id),
+          ]);
+        }
+        await supabase.auth.signOut();
+      } catch (err) {
+        console.warn('Error deleting account data:', err);
+      }
+    }
+    this.clearLocalData();
+    return true;
   }
 }
 

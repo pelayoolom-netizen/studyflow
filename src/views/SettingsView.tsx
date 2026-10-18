@@ -16,6 +16,10 @@ import {
   ShieldCheck,
   RotateCcw,
   Trash2,
+  Sun,
+  Moon,
+  User,
+  Sliders,
 } from 'lucide-react';
 import { UserProfile } from '../types';
 import {
@@ -36,6 +40,7 @@ interface Props {
   onSignOut: () => void;
   pendingTasksSummary: string;
   onResetAllData: () => Promise<void>;
+  syncState: string;
 }
 
 const DAYS_OF_WEEK = [
@@ -55,18 +60,38 @@ export const SettingsView: React.FC<Props> = ({
   onSignOut,
   pendingTasksSummary,
   onResetAllData,
+  syncState,
 }) => {
   // Reset confirmation modal
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+
+  // Delete account confirmation modal
+  const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+
+  // Clear local data confirmation modal
+  const [showClearLocalModal, setShowClearLocalModal] = useState(false);
 
   // Push status
   const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
   const [pushLoading, setPushLoading] = useState(false);
   const [pushMessage, setPushMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Form states
-  const [reminderTime, setReminderTime] = useState(profile.reminder_time || '14:15');
+  // Profile fields
+  const [fullName, setFullName] = useState(profile.full_name || 'Estudiante');
+  const [dailyGoal, setDailyGoal] = useState(profile.daily_study_goal_minutes || 120);
+
+  // Theme state
+  const [theme, setTheme] = useState<'dark' | 'light'>(profile.theme || 'dark');
+
+  // Calendar preferences
+  const [calendarFirstDay, setCalendarFirstDay] = useState<number>(profile.calendar_first_day ?? 1);
+  const [calendarDefaultView, setCalendarDefaultView] = useState<'month' | 'week' | 'day'>(profile.calendar_default_view || 'month');
+
+  // Reminder time: default initial 15:30
+  const [reminderTime, setReminderTime] = useState(profile.reminder_time || '15:30');
   const [selectedDays, setSelectedDays] = useState<number[]>(profile.reminder_days || [1, 2, 3, 4, 5, 6, 7]);
   const [timezone, setTimezone] = useState(profile.timezone || 'Europe/Madrid');
 
@@ -156,9 +181,28 @@ export const SettingsView: React.FC<Props> = ({
     }
   };
 
-  const handleSavePreferences = async (e: React.FormEvent) => {
+  const handleThemeChange = (newTheme: 'dark' | 'light') => {
+    setTheme(newTheme);
+    if (typeof document !== 'undefined') {
+      if (newTheme === 'light') {
+        document.documentElement.classList.add('light');
+        document.documentElement.classList.remove('dark');
+      } else {
+        document.documentElement.classList.add('dark');
+        document.documentElement.classList.remove('light');
+      }
+    }
+    onUpdateProfile({ theme: newTheme });
+  };
+
+  const handleSaveProfileAndPreferences = async (e: React.FormEvent) => {
     e.preventDefault();
     await onUpdateProfile({
+      full_name: fullName.trim(),
+      daily_study_goal_minutes: Number(dailyGoal) || 120,
+      theme,
+      calendar_first_day: calendarFirstDay,
+      calendar_default_view: calendarDefaultView,
       reminder_time: reminderTime,
       reminder_days: selectedDays,
       timezone,
@@ -170,7 +214,7 @@ export const SettingsView: React.FC<Props> = ({
     });
     setPushMessage({
       type: 'success',
-      text: 'Preferencias de recordatorios guardadas correctamente en la nube.',
+      text: 'Preferencias y perfil guardados correctamente.',
     });
   };
 
@@ -214,14 +258,59 @@ export const SettingsView: React.FC<Props> = ({
     reader.readAsText(file);
   };
 
+  // Confirm delete account
+  const handleExecuteDeleteAccount = async () => {
+    if (deleteConfirmText.trim().toUpperCase() !== 'ELIMINAR') return;
+    setIsDeletingAccount(true);
+    await dataService.deleteAccount();
+    setIsDeletingAccount(false);
+    setShowDeleteAccountModal(false);
+    onSignOut();
+    window.location.reload();
+  };
+
+  // Confirm clear local cache
+  const handleExecuteClearLocal = () => {
+    dataService.clearLocalData();
+    window.location.reload();
+  };
+
   return (
-    <div className="space-y-6 max-w-4xl mx-auto pb-16">
+    <div className="space-y-6 max-w-4xl mx-auto pb-20">
       {/* Title */}
-      <div>
-        <h1 className="text-2xl font-black text-white tracking-tight">Ajustes y Notificaciones</h1>
-        <p className="text-xs text-zinc-400">
-          Configuración del sistema Web Push, horarios de recordatorio diario y sincronización en la nube.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-black text-white tracking-tight">Ajustes</h1>
+          <p className="text-xs text-zinc-400">
+            Gestiona tu perfil, apariencia, notificaciones programadas, sincronización y privacidad.
+          </p>
+        </div>
+
+        {/* Sync Status Pill */}
+        <div className="self-start sm:self-center">
+          <span
+            className={`text-xs font-semibold px-3 py-1.5 rounded-xl border inline-flex items-center gap-1.5 ${
+              syncState === 'synced'
+                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                : syncState === 'saving'
+                ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                : 'bg-zinc-800 text-zinc-300 border-zinc-700'
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                syncState === 'synced' ? 'bg-emerald-400' : syncState === 'saving' ? 'bg-amber-400 animate-ping' : 'bg-zinc-400'
+              }`}
+            />
+            <span>
+              {syncState === 'synced'
+                ? 'Nube Conectada'
+                : syncState === 'saving'
+                ? 'Guardando...'
+                : 'Modo Local (Sin Cuenta)'}
+            </span>
+          </span>
+        </div>
       </div>
 
       {pushMessage && (
@@ -242,37 +331,291 @@ export const SettingsView: React.FC<Props> = ({
       )}
 
       {/* ======================================================== */}
-      {/* 1. SISTEMA WEB PUSH Y NOTIFICACIONES REALES              */}
+      {/* 1. PERFIL Y CONFIGURACIÓN DE CUENTA                      */}
       {/* ======================================================== */}
-      <div className="card-dark rounded-2xl p-6 space-y-6 border border-emerald-500/20">
+      <form onSubmit={handleSaveProfileAndPreferences} className="card-dark rounded-2xl p-6 space-y-6">
+        <div className="flex items-center gap-3 pb-3 border-b border-zinc-800">
+          <div className="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center">
+            <User className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-white">Perfil y Configuración de Estudio</h2>
+            <p className="text-xs text-zinc-400">
+              Datos personales y objetivo de concentración diaria.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+          <div>
+            <label className="block text-[11px] font-semibold text-zinc-300 mb-1.5">
+              Nombre de usuario / Saludo
+            </label>
+            <input
+              type="text"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl bg-[#161c28] border border-zinc-700 text-xs text-white focus:outline-hidden focus:border-emerald-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-zinc-300 mb-1.5">
+              Meta diaria de estudio (minutos)
+            </label>
+            <input
+              type="number"
+              min="15"
+              step="15"
+              value={dailyGoal}
+              onChange={(e) => setDailyGoal(Number(e.target.value))}
+              className="w-full px-3 py-2 rounded-xl bg-[#161c28] border border-zinc-700 text-xs text-white focus:outline-hidden focus:border-emerald-500"
+            />
+          </div>
+        </div>
+
+        {/* ======================================================== */}
+        {/* 2. TEMA DE LA APLICACIÓN (CLARO / OSCURO)                 */}
+        {/* ======================================================== */}
+        <div className="pt-4 border-t border-zinc-800 space-y-3">
+          <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">
+            Tema y Apariencia Visual
+          </label>
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <button
+              type="button"
+              onClick={() => handleThemeChange('dark')}
+              className={`p-3.5 rounded-xl border flex items-center justify-center gap-2.5 font-semibold transition cursor-pointer ${
+                theme === 'dark'
+                  ? 'bg-zinc-800 text-white border-emerald-500 shadow-md shadow-emerald-950/40'
+                  : 'bg-[#161c28] text-zinc-400 border-zinc-800 hover:text-white'
+              }`}
+            >
+              <Moon className="w-4 h-4 text-emerald-400" />
+              <span>Tema Oscuro (Carbón)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleThemeChange('light')}
+              className={`p-3.5 rounded-xl border flex items-center justify-center gap-2.5 font-semibold transition cursor-pointer ${
+                theme === 'light'
+                  ? 'bg-zinc-800 text-white border-emerald-500 shadow-md'
+                  : 'bg-[#161c28] text-zinc-400 border-zinc-800 hover:text-white'
+              }`}
+            >
+              <Sun className="w-4 h-4 text-amber-400" />
+              <span>Tema Claro</span>
+            </button>
+          </div>
+        </div>
+
+        {/* ======================================================== */}
+        {/* 3. PREFERENCIAS DE CALENDARIO                            */}
+        {/* ======================================================== */}
+        <div className="pt-4 border-t border-zinc-800 space-y-3">
+          <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-emerald-400" />
+            <span>Preferencias del Calendario</span>
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label className="block text-[11px] font-semibold text-zinc-300 mb-1.5">
+                Primer día de la semana
+              </label>
+              <select
+                value={calendarFirstDay}
+                onChange={(e) => setCalendarFirstDay(Number(e.target.value))}
+                className="w-full px-3 py-2 rounded-xl bg-[#161c28] border border-zinc-700 text-xs text-white focus:outline-hidden focus:border-emerald-500 cursor-pointer"
+              >
+                <option value={1}>Lunes (España / Estándar ISO)</option>
+                <option value={0}>Domingo</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-zinc-300 mb-1.5">
+                Vista inicial por defecto
+              </label>
+              <select
+                value={calendarDefaultView}
+                onChange={(e) => setCalendarDefaultView(e.target.value as 'month' | 'week' | 'day')}
+                className="w-full px-3 py-2 rounded-xl bg-[#161c28] border border-zinc-700 text-xs text-white focus:outline-hidden focus:border-emerald-500 cursor-pointer"
+              >
+                <option value="month">Mensual</option>
+                <option value="week">Semanal</option>
+                <option value="day">Diaria</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* ======================================================== */}
+        {/* 4. PROGRAMACIÓN DE HORARIO (VALOR INICIAL 15:30)         */}
+        {/* ======================================================== */}
+        <div className="pt-4 border-t border-zinc-800 space-y-4">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-emerald-400" />
+            <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
+              Horario del Recordatorio Diario
+            </h3>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label className="block text-[11px] font-semibold text-zinc-300 mb-1.5">
+                Hora de aviso diario (editable, inicial 15:30)
+              </label>
+              <input
+                type="time"
+                required
+                value={reminderTime}
+                onChange={(e) => setReminderTime(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-[#161c28] border border-zinc-700 text-sm text-white focus:outline-hidden focus:border-emerald-500"
+              />
+              <p className="text-[11px] text-zinc-500 mt-1">Configurado por defecto a las 15:30.</p>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-zinc-300 mb-1.5">
+                Zona horaria del estudiante
+              </label>
+              <div className="relative">
+                <Globe className="w-4 h-4 text-zinc-500 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={timezone}
+                  onChange={(e) => setTimezone(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-[#161c28] border border-zinc-700 text-xs text-white focus:outline-hidden focus:border-emerald-500"
+                />
+              </div>
+              <p className="text-[11px] text-zinc-500 mt-1">Respeta cambios de horario de verano.</p>
+            </div>
+          </div>
+
+          {/* Days of week selector */}
+          <div className="space-y-2">
+            <label className="block text-xs font-semibold text-zinc-300">
+              Días de la semana para recibir avisos
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {DAYS_OF_WEEK.map((day) => {
+                const isSelected = selectedDays.includes(day.id);
+                return (
+                  <button
+                    type="button"
+                    key={day.id}
+                    onClick={() => handleDayToggle(day.id)}
+                    className={`w-10 h-10 rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-center border ${
+                      isSelected
+                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-950/40'
+                        : 'bg-[#161c28] text-zinc-400 border-zinc-700/80 hover:text-white'
+                    }`}
+                  >
+                    {day.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Categories toggles */}
+          <div className="space-y-3 pt-2">
+            <label className="block text-xs font-semibold text-zinc-300">
+              Categorías de aviso activas
+            </label>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+              <label className="flex items-center gap-3 p-3 rounded-xl bg-[#161c28] border border-zinc-800 cursor-pointer hover:bg-[#1a2130]">
+                <input
+                  type="checkbox"
+                  checked={notifyDaily}
+                  onChange={(e) => setNotifyDaily(e.target.checked)}
+                  className="w-4 h-4 rounded-sm accent-emerald-500"
+                />
+                <span className="text-zinc-200">Resumen diario general</span>
+              </label>
+
+              <label className="flex items-center gap-3 p-3 rounded-xl bg-[#161c28] border border-zinc-800 cursor-pointer hover:bg-[#1a2130]">
+                <input
+                  type="checkbox"
+                  checked={notifyExams}
+                  onChange={(e) => setNotifyExams(e.target.checked)}
+                  className="w-4 h-4 rounded-sm accent-emerald-500"
+                />
+                <span className="text-zinc-200">Aviso de examen próximo</span>
+              </label>
+
+              <label className="flex items-center gap-3 p-3 rounded-xl bg-[#161c28] border border-zinc-800 cursor-pointer hover:bg-[#1a2130]">
+                <input
+                  type="checkbox"
+                  checked={notifyAssignments}
+                  onChange={(e) => setNotifyAssignments(e.target.checked)}
+                  className="w-4 h-4 rounded-sm accent-emerald-500"
+                />
+                <span className="text-zinc-200">Aviso de entrega cercana</span>
+              </label>
+
+              <label className="flex items-center gap-3 p-3 rounded-xl bg-[#161c28] border border-zinc-800 cursor-pointer hover:bg-[#1a2130]">
+                <input
+                  type="checkbox"
+                  checked={notifyOverdue}
+                  onChange={(e) => setNotifyOverdue(e.target.checked)}
+                  className="w-4 h-4 rounded-sm accent-emerald-500"
+                />
+                <span className="text-zinc-200">Aviso de deber atrasado</span>
+              </label>
+
+              <label className="flex items-center gap-3 p-3 rounded-xl bg-[#161c28] border border-zinc-800 cursor-pointer hover:bg-[#1a2130]">
+                <input
+                  type="checkbox"
+                  checked={notifySessions}
+                  onChange={(e) => setNotifySessions(e.target.checked)}
+                  className="w-4 h-4 rounded-sm accent-emerald-500"
+                />
+                <span className="text-zinc-200">Recordatorio de sesión de estudio</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold text-xs text-white transition cursor-pointer"
+        >
+          Guardar Todas las Preferencias
+        </button>
+      </form>
+
+      {/* ======================================================== */}
+      {/* 5. SISTEMA DE NOTIFICACIONES WEB PUSH REALES             */}
+      {/* ======================================================== */}
+      <div className="card-dark rounded-2xl p-6 space-y-5 border border-emerald-500/20">
         <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center">
               <Bell className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">Recordatorios y Web Push en Segundo Plano</h2>
+              <h2 className="text-base font-bold text-white">Dispositivo y Web Push API</h2>
               <p className="text-xs text-zinc-400">
-                Notificaciones directas al dispositivo incluso con la aplicación cerrada.
+                Suscripción en este navegador para recibir alertas en segundo plano.
               </p>
             </div>
           </div>
 
-          {/* Status Badge */}
-          <div className="text-right">
-            <span
-              className={`text-xs font-bold px-3 py-1 rounded-full border ${
-                pushStatus?.isSubscribed
-                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                  : 'bg-zinc-800 text-zinc-400 border-zinc-700'
-              }`}
-            >
-              {pushStatus?.isSubscribed ? 'Suscrito' : 'Inactivo'}
-            </span>
-          </div>
+          <span
+            className={`text-xs font-bold px-3 py-1 rounded-full border ${
+              pushStatus?.isSubscribed
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+            }`}
+          >
+            {pushStatus?.isSubscribed ? 'Suscrito en este dispositivo' : 'No suscrito'}
+          </span>
         </div>
 
-        {/* Device Permission Info Card */}
+        {/* Device Status Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
           <div className="p-3.5 rounded-xl bg-[#161c28] border border-zinc-800 space-y-1">
             <span className="text-zinc-400 font-medium">Permiso en el Navegador</span>
@@ -283,30 +626,30 @@ export const SettingsView: React.FC<Props> = ({
           <div className="p-3.5 rounded-xl bg-[#161c28] border border-zinc-800 space-y-1">
             <span className="text-zinc-400 font-medium">Service Worker</span>
             <p className="font-bold text-emerald-400">
-              {pushStatus?.registration ? 'Operativo (sw.js)' : 'Pendiente de activar'}
+              {pushStatus?.registration ? 'Operativo (sw.js)' : 'Pendiente'}
             </p>
           </div>
           <div className="p-3.5 rounded-xl bg-[#161c28] border border-zinc-800 space-y-1">
-            <span className="text-zinc-400 font-medium">Soporte Push API</span>
+            <span className="text-zinc-400 font-medium">Compatibilidad</span>
             <p className="font-bold text-white">
-              {pushStatus?.isSupported ? 'Compatible 100%' : 'No soportado en este visor'}
+              {pushStatus?.isSupported ? 'Push API disponible' : 'Limitado'}
             </p>
           </div>
         </div>
 
-        {/* iPhone / Safari specific guidance */}
+        {/* Guidance for iPhone & Server scheduling */}
         <div className="p-4 rounded-xl bg-[#141924] border border-zinc-800 text-xs space-y-2">
           <div className="flex items-center gap-2 text-emerald-400 font-bold">
             <Smartphone className="w-4 h-4" />
-            <span>Requisitos para iPhone / iPad (iOS 16.4+) y Windows:</span>
+            <span>Limitaciones en iPhone / iPad (iOS 16.4+):</span>
           </div>
           <p className="text-zinc-300 leading-relaxed">
-            Para recibir notificaciones Web Push en iPhone, debes pulsar <strong>Compartir <Share2 className="w-3 h-3 inline mx-0.5 text-zinc-400" /> &gt; «Añadir a la pantalla de inicio»</strong> en Safari y abrir StudyFlow desde el icono de tu pantalla de inicio. En Windows/Mac puedes activar el permiso directamente desde tu navegador con HTTPS.
+            Apple requiere que StudyFlow se instale en la pantalla de inicio desde Safari (pulsar <strong>Compartir <Share2 className="w-3 h-3 inline mx-0.5 text-zinc-400" /> &gt; «Añadir a la pantalla de inicio»</strong>) y se abra desde allí para habilitar los permisos Web Push.
           </p>
         </div>
 
-        {/* Push Action Buttons */}
-        <div className="flex flex-wrap items-center gap-3 pt-2">
+        {/* Push actions */}
+        <div className="flex flex-wrap items-center gap-3 pt-1">
           <button
             onClick={handleTogglePush}
             disabled={pushLoading}
@@ -346,149 +689,7 @@ export const SettingsView: React.FC<Props> = ({
       </div>
 
       {/* ======================================================== */}
-      {/* 2. PROGRAMACIÓN DEL RECORDATORIO DIARIO Y CATEGORÍAS     */}
-      {/* ======================================================== */}
-      <form onSubmit={handleSavePreferences} className="card-dark rounded-2xl p-6 space-y-6">
-        <div className="flex items-center gap-3 pb-3 border-b border-zinc-800">
-          <div className="w-9 h-9 rounded-xl bg-teal-500/15 text-teal-400 flex items-center justify-center">
-            <Clock className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-base font-bold text-white">Programación del Recordatorio Diario</h2>
-            <p className="text-xs text-zinc-400">
-              Personaliza la hora exacta y los días de envío de tu informe académico.
-            </p>
-          </div>
-        </div>
-
-        {/* Time and Timezone */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-              Hora del recordatorio diario (editable)
-            </label>
-            <input
-              type="time"
-              required
-              value={reminderTime}
-              onChange={(e) => setReminderTime(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[#161c28] border border-zinc-700 text-sm text-white focus:outline-hidden focus:border-emerald-500"
-            />
-            <p className="text-[11px] text-zinc-500 mt-1">Configurado inicialmente a las 14:15.</p>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-              Zona horaria del usuario
-            </label>
-            <div className="relative">
-              <Globe className="w-4 h-4 text-zinc-500 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={timezone}
-                onChange={(e) => setTimezone(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 rounded-xl bg-[#161c28] border border-zinc-700 text-xs text-white focus:outline-hidden focus:border-emerald-500"
-              />
-            </div>
-            <p className="text-[11px] text-zinc-500 mt-1">Respeta automáticamente el horario de verano.</p>
-          </div>
-        </div>
-
-        {/* Days of week selector */}
-        <div className="space-y-2">
-          <label className="block text-xs font-semibold text-zinc-300">
-            Días de la semana para recibir el aviso
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {DAYS_OF_WEEK.map((day) => {
-              const isSelected = selectedDays.includes(day.id);
-              return (
-                <button
-                  type="button"
-                  key={day.id}
-                  onClick={() => handleDayToggle(day.id)}
-                  className={`w-11 h-11 rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-center border ${
-                    isSelected
-                      ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-950/40'
-                      : 'bg-[#161c28] text-zinc-400 border-zinc-700/80 hover:text-white'
-                  }`}
-                >
-                  {day.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Categories toggles */}
-        <div className="space-y-3 pt-3 border-t border-zinc-800">
-          <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">
-            Categorías de notificaciones activas
-          </label>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <label className="flex items-center gap-3 p-3 rounded-xl bg-[#161c28] border border-zinc-800 cursor-pointer hover:bg-[#1a2130]">
-              <input
-                type="checkbox"
-                checked={notifyDaily}
-                onChange={(e) => setNotifyDaily(e.target.checked)}
-                className="w-4 h-4 rounded-sm accent-emerald-500"
-              />
-              <span className="text-zinc-200">Resumen diario general</span>
-            </label>
-
-            <label className="flex items-center gap-3 p-3 rounded-xl bg-[#161c28] border border-zinc-800 cursor-pointer hover:bg-[#1a2130]">
-              <input
-                type="checkbox"
-                checked={notifyExams}
-                onChange={(e) => setNotifyExams(e.target.checked)}
-                className="w-4 h-4 rounded-sm accent-emerald-500"
-              />
-              <span className="text-zinc-200">Aviso de examen próximo</span>
-            </label>
-
-            <label className="flex items-center gap-3 p-3 rounded-xl bg-[#161c28] border border-zinc-800 cursor-pointer hover:bg-[#1a2130]">
-              <input
-                type="checkbox"
-                checked={notifyAssignments}
-                onChange={(e) => setNotifyAssignments(e.target.checked)}
-                className="w-4 h-4 rounded-sm accent-emerald-500"
-              />
-              <span className="text-zinc-200">Aviso de entrega cercana</span>
-            </label>
-
-            <label className="flex items-center gap-3 p-3 rounded-xl bg-[#161c28] border border-zinc-800 cursor-pointer hover:bg-[#1a2130]">
-              <input
-                type="checkbox"
-                checked={notifyOverdue}
-                onChange={(e) => setNotifyOverdue(e.target.checked)}
-                className="w-4 h-4 rounded-sm accent-emerald-500"
-              />
-              <span className="text-zinc-200">Aviso de deber atrasado</span>
-            </label>
-
-            <label className="flex items-center gap-3 p-3 rounded-xl bg-[#161c28] border border-zinc-800 cursor-pointer hover:bg-[#1a2130]">
-              <input
-                type="checkbox"
-                checked={notifySessions}
-                onChange={(e) => setNotifySessions(e.target.checked)}
-                className="w-4 h-4 rounded-sm accent-emerald-500"
-              />
-              <span className="text-zinc-200">Recordatorio de sesión de estudio</span>
-            </label>
-          </div>
-        </div>
-
-        <button
-          type="submit"
-          className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold text-xs text-white transition cursor-pointer"
-        >
-          Guardar Preferencias de Horarios
-        </button>
-      </form>
-
-      {/* ======================================================== */}
-      {/* 3. CONEXIÓN SUPABASE CLOUD POSTGRESQL                    */}
+      {/* 6. CONEXIÓN SUPABASE CLOUD POSTGRESQL                    */}
       {/* ======================================================== */}
       <div className="card-dark rounded-2xl p-6 space-y-4">
         <div className="flex items-center gap-3 pb-3 border-b border-zinc-800">
@@ -496,9 +697,9 @@ export const SettingsView: React.FC<Props> = ({
             <Database className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-white">Base de Datos Supabase PostgreSQL en la Nube</h2>
+            <h2 className="text-base font-bold text-white">Sincronización en la Nube (Supabase)</h2>
             <p className="text-xs text-zinc-400">
-              Conexión directa para sincronizar datos entre móvil, tableta y ordenador.
+              Conexión para respaldar y consultar tus datos entre PC, iPhone y otros dispositivos.
             </p>
           </div>
         </div>
@@ -544,22 +745,18 @@ export const SettingsView: React.FC<Props> = ({
             )}
           </div>
         </form>
-
-        <p className="text-[11px] text-zinc-500 pt-2 border-t border-zinc-800">
-          Encuentra el script de migración SQL con RLS en <code>supabase/migrations/20261018_initial_studyflow_schema.sql</code>.
-        </p>
       </div>
 
       {/* ======================================================== */}
-      {/* 4. RESPALDO Y EXPORTACIÓN / IMPORTACIÓN DE DATOS         */}
+      {/* 7. COPIA DE SEGURIDAD Y EXPORTACIÓN / IMPORTACIÓN        */}
       {/* ======================================================== */}
       <div className="card-dark rounded-2xl p-6 space-y-4">
         <h2 className="text-base font-bold text-white flex items-center gap-2">
           <ShieldCheck className="w-5 h-5 text-emerald-400" />
-          <span>Copia de Seguridad y Migración</span>
+          <span>Copia de Seguridad y Migración de Datos</span>
         </h2>
         <p className="text-xs text-zinc-400">
-          Exporta todos tus deberes, exámenes y notas en un archivo JSON seguro o restaura un respaldo previo.
+          Descarga un archivo JSON con todos tus registros o restaura un respaldo previo.
         </p>
 
         {importStatus && (
@@ -584,29 +781,76 @@ export const SettingsView: React.FC<Props> = ({
       </div>
 
       {/* ======================================================== */}
-      {/* 5. REINICIAR DATOS A CERO (LIENZO EN BLANCO)             */}
+      {/* 8. GESTIÓN DE DATOS Y PRIVACIDAD                         */}
       {/* ======================================================== */}
       <div className="card-dark rounded-2xl p-6 space-y-4 border border-rose-500/20">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-rose-500/15 text-rose-400 flex items-center justify-center">
-            <Trash2 className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-base font-bold text-white">Reiniciar a Cero (Lienzo en Blanco)</h2>
-            <p className="text-xs text-zinc-400">
-              Vacía todas tus tareas, deberes, exámenes y sesiones para comenzar completamente de cero.
+        <h2 className="text-base font-bold text-white flex items-center gap-2">
+          <Trash2 className="w-5 h-5 text-rose-400" />
+          <span>Privacidad y Limpieza de Datos</span>
+        </h2>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <div className="p-4 rounded-xl bg-[#161c28] border border-zinc-800 space-y-2">
+            <h4 className="font-bold text-white">Lienzo en Blanco</h4>
+            <p className="text-zinc-400 text-[11px] leading-relaxed">
+              Elimina todas las tareas, deberes, exámenes y asignaturas actuales para empezar de cero.
             </p>
+            <button
+              onClick={() => setShowResetConfirm(true)}
+              className="w-full py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold text-xs transition cursor-pointer"
+            >
+              Vaciar Contenido
+            </button>
+          </div>
+
+          <div className="p-4 rounded-xl bg-[#161c28] border border-zinc-800 space-y-2">
+            <h4 className="font-bold text-white">Borrar Datos Locales</h4>
+            <p className="text-zinc-400 text-[11px] leading-relaxed">
+              Borra toda la memoria en caché y preferencias guardadas en este navegador.
+            </p>
+            <button
+              onClick={() => setShowClearLocalModal(true)}
+              className="w-full py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold text-xs transition cursor-pointer"
+            >
+              Borrar Datos Locales
+            </button>
           </div>
         </div>
 
-        <button
-          onClick={() => setShowResetConfirm(true)}
-          className="px-4 py-2.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-500/40 text-xs font-semibold transition flex items-center gap-2 cursor-pointer"
-        >
-          <RotateCcw className="w-4 h-4 text-rose-400" />
-          <span>Vaciar Todo y Empezar de Cero</span>
-        </button>
+        {userEmail && (
+          <div className="pt-3 border-t border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold text-rose-300">Zona de Peligro: Eliminar Cuenta</p>
+              <p className="text-[11px] text-zinc-500">Elimina permanentemente tu cuenta y todos tus datos en la nube.</p>
+            </div>
+            <button
+              onClick={() => setShowDeleteAccountModal(true)}
+              className="px-3.5 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 text-xs font-semibold transition cursor-pointer self-start sm:self-auto"
+            >
+              Eliminar Cuenta
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* ======================================================== */}
+      {/* 9. SESIÓN Y CUENTA                                       */}
+      {/* ======================================================== */}
+      {userEmail && (
+        <div className="card-dark rounded-2xl p-6 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-white">Sesión Activa</h3>
+            <p className="text-xs text-zinc-400">{userEmail}</p>
+          </div>
+          <button
+            onClick={onSignOut}
+            className="px-4 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 font-semibold text-xs transition flex items-center gap-2 cursor-pointer"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Cerrar Sesión</span>
+          </button>
+        </div>
+      )}
 
       {/* Reset Confirmation Modal */}
       {showResetConfirm && (
@@ -617,7 +861,7 @@ export const SettingsView: React.FC<Props> = ({
             </div>
             <h3 className="text-base font-bold text-white text-center">¿Confirmar reinicio total?</h3>
             <p className="text-xs text-zinc-400 text-center leading-relaxed">
-              Esta acción eliminará todos los deberes, exámenes, asignaturas y sesiones registradas, dejándote la aplicación 100% limpia sin nada predeterminado.
+              Esta acción eliminará todos los deberes, exámenes, asignaturas y sesiones para dejar tu cuenta limpia como el primer día.
             </p>
             <div className="flex gap-2 pt-2">
               <button
@@ -644,22 +888,75 @@ export const SettingsView: React.FC<Props> = ({
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* 5. CUENTA Y CIERRE DE SESIÓN                             */}
-      {/* ======================================================== */}
-      {userEmail && (
-        <div className="card-dark rounded-2xl p-6 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-bold text-white">Sesión Activa</h3>
-            <p className="text-xs text-zinc-400">{userEmail}</p>
+      {/* Clear Local Cache Confirmation Modal */}
+      {showClearLocalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-[#12161f] border border-zinc-700 p-6 shadow-2xl text-zinc-200 space-y-4">
+            <h3 className="text-base font-bold text-white text-center">¿Borrar datos locales?</h3>
+            <p className="text-xs text-zinc-400 text-center leading-relaxed">
+              Se eliminará la información temporal almacenada en este navegador y la página se recargará.
+            </p>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setShowClearLocalModal(false)}
+                className="flex-1 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-200 transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleExecuteClearLocal}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-semibold text-white transition cursor-pointer"
+              >
+                Borrar Caché Local
+              </button>
+            </div>
           </div>
-          <button
-            onClick={onSignOut}
-            className="px-4 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 font-semibold text-xs transition flex items-center gap-2 cursor-pointer"
-          >
-            <LogOut className="w-4 h-4" />
-            <span>Cerrar Sesión</span>
-          </button>
+        </div>
+      )}
+
+      {/* Delete Account Confirmation Modal */}
+      {showDeleteAccountModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-2xl bg-[#12161f] border border-rose-500/50 p-6 shadow-2xl text-zinc-200 space-y-4">
+            <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center mx-auto">
+              <Trash2 className="w-5 h-5" />
+            </div>
+            <h3 className="text-base font-bold text-white text-center">Eliminar Cuenta Permanentemente</h3>
+            <p className="text-xs text-zinc-400 text-center leading-relaxed">
+              Esta acción no se puede deshacer. Se borrarán tus credenciales de acceso y todos tus datos en la nube.
+            </p>
+            <div>
+              <label className="block text-[11px] font-semibold text-zinc-300 mb-1.5 text-center">
+                Escribe <strong>ELIMINAR</strong> para confirmar:
+              </label>
+              <input
+                type="text"
+                placeholder="ELIMINAR"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-[#161c28] border border-rose-500/40 text-center text-xs text-white focus:outline-hidden focus:border-rose-500"
+              />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                disabled={isDeletingAccount}
+                onClick={() => {
+                  setShowDeleteAccountModal(false);
+                  setDeleteConfirmText('');
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-200 transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                disabled={isDeletingAccount || deleteConfirmText.trim().toUpperCase() !== 'ELIMINAR'}
+                onClick={handleExecuteDeleteAccount}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-semibold text-white transition disabled:opacity-40 cursor-pointer"
+              >
+                {isDeletingAccount ? 'Eliminando...' : 'Confirmar Eliminación'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

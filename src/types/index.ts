@@ -77,9 +77,12 @@ export interface UserProfile {
   email?: string;
   full_name: string;
   daily_study_goal_minutes: number;
-  reminder_time: string; // "14:15"
+  reminder_time: string; // default "15:30"
   reminder_days: number[]; // [1,2,3,4,5,6,7]
   timezone: string;
+  theme: 'dark' | 'light';
+  calendar_first_day: number; // 1 = Lunes, 0 = Domingo
+  calendar_default_view: 'month' | 'week' | 'day';
   notify_daily_reminder: boolean;
   notify_upcoming_exams: boolean;
   notify_due_assignments: boolean;

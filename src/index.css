@@ -5,11 +5,20 @@
     color-scheme: dark;
   }
 
+  html.light {
+    color-scheme: light;
+  }
+
   body {
     background-color: #090b0e;
     color: #f3f4f6;
     overflow-x: hidden;
     -webkit-tap-highlight-color: transparent;
+  }
+
+  html.light body {
+    background-color: #f8fafc;
+    color: #0f172a;
   }
 
   /* Custom scrollbar */
@@ -29,10 +38,16 @@
   }
 }
 
-/* Glassmorphism and dark cards */
+/* Glassmorphism and responsive theme cards */
 .card-dark {
   background-color: #12161f;
   border: 1px solid #1f2737;
+}
+
+html.light .card-dark {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.05);
 }
 
 .card-dark-hover {
@@ -43,6 +58,15 @@
 .card-dark-hover:hover {
   background-color: #161c28;
   border-color: #2e3a52;
+}
+
+html.light .card-dark-hover {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+}
+html.light .card-dark-hover:hover {
+  background-color: #f1f5f9;
+  border-color: #cbd5e1;
 }
 
 /* Safe area for mobile iOS home indicator and notch */

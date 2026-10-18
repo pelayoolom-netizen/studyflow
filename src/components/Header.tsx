@@ -1,5 +1,4 @@
-import React from 'react';
-import { Cloud, CloudOff, RefreshCw, UserCheck, LogIn } from 'lucide-react';
+import { Cloud, CloudOff, RefreshCw, UserCheck, LogIn, Settings } from 'lucide-react';
 import { SyncState } from '../lib/storage';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -7,12 +6,14 @@ interface Props {
   syncState: SyncState;
   userEmail?: string | null;
   onOpenAuth: () => void;
+  onOpenSettings: () => void;
 }
 
 export const Header: React.FC<Props> = ({
   syncState,
   userEmail,
   onOpenAuth,
+  onOpenSettings,
 }) => {
   const todayFormatted = new Intl.DateTimeFormat('es-ES', {
     weekday: 'long',
@@ -78,6 +79,16 @@ export const Header: React.FC<Props> = ({
 
         {/* PWA Install Button */}
         <PWAInstallButton />
+
+        {/* Dedicated Ajustes Button */}
+        <button
+          onClick={onOpenSettings}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#141a26] hover:bg-[#1b2333] border border-[#222c3d] text-xs font-semibold text-zinc-200 hover:text-emerald-400 transition cursor-pointer"
+          title="Abrir Ajustes de StudyFlow"
+        >
+          <Settings className="w-3.5 h-3.5 text-emerald-400" />
+          <span>Ajustes</span>
+        </button>
 
         {/* Supabase User Account Button */}
         <button
