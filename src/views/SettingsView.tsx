@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Bell,
   Clock,
@@ -20,6 +20,10 @@ import {
   Moon,
   User,
   Sliders,
+  Activity,
+  Wifi,
+  HelpCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { UserProfile } from '../types';
 import {
@@ -28,8 +32,11 @@ import {
   unsubscribeFromPush,
   sendTestNotification,
   triggerDailyReminderNow,
+  requestNotificationPermission,
   PushStatus,
+  NotificationResult,
 } from '../lib/pushNotifications';
+import { calculateNextReminder, NextReminderInfo } from '../lib/reminderScheduler';
 import { getSupabaseConfig, resetSupabaseClient, getSupabaseClient } from '../lib/supabase';
 import { dataService } from '../lib/storage';
 
@@ -74,10 +81,12 @@ export const SettingsView: React.FC<Props> = ({
   // Clear local data confirmation modal
   const [showClearLocalModal, setShowClearLocalModal] = useState(false);
 
-  // Push status
+  // Push status & diagnostic state
   const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
   const [pushLoading, setPushLoading] = useState(false);
-  const [pushMessage, setPushMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [pushMessage, setPushMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string; details?: string } | null>(null);
+  const [lastTestResult, setLastTestResult] = useState<NotificationResult | null>(null);
+  const [isRequestingPermission, setIsRequestingPermission] = useState(false);
 
   // Profile fields
   const [fullName, setFullName] = useState(profile.full_name || 'Estudiante');
@@ -111,64 +120,166 @@ export const SettingsView: React.FC<Props> = ({
   // Export / Import
   const [importStatus, setImportStatus] = useState<string | null>(null);
 
+  // Next calculated reminder
+  const nextReminderInfo: NextReminderInfo = useMemo(() => {
+    return calculateNextReminder({
+      ...profile,
+      reminder_time: reminderTime,
+      reminder_days: selectedDays,
+      notify_daily_reminder: notifyDaily,
+    });
+  }, [profile, reminderTime, selectedDays, notifyDaily]);
+
   // Refresh push state on mount
   useEffect(() => {
     checkPush();
   }, []);
 
   const checkPush = async () => {
-    const status = await getPushStatus();
-    setPushStatus(status);
+    try {
+      const status = await getPushStatus();
+      setPushStatus(status);
+    } catch (err: any) {
+      console.warn('Error reading push status:', err);
+    }
+  };
+
+  const handleRequestPermission = async () => {
+    if (isRequestingPermission) return;
+    setIsRequestingPermission(true);
+    setPushMessage(null);
+    try {
+      const perm = await requestNotificationPermission();
+      await checkPush();
+      if (perm === 'granted') {
+        setPushMessage({
+          type: 'success',
+          text: '¡Permiso de notificaciones concedido! Ahora puedes recibir avisos del sistema.',
+        });
+      } else if (perm === 'denied') {
+        setPushMessage({
+          type: 'error',
+          text: 'Permiso denegado por el usuario.',
+          details: 'Para activarlo, haz clic en el icono de candado o configuración junto a la URL del navegador y cambia "Notificaciones" a "Permitir".',
+        });
+      } else {
+        setPushMessage({
+          type: 'info',
+          text: 'La solicitud de permisos se cerró sin respuesta.',
+        });
+      }
+    } catch (err: any) {
+      setPushMessage({
+        type: 'error',
+        text: 'Error solicitando permisos',
+        details: err?.message,
+      });
+    } finally {
+      setIsRequestingPermission(false);
+    }
   };
 
   const handleTogglePush = async () => {
+    if (pushLoading) return;
     setPushLoading(true);
     setPushMessage(null);
 
-    if (pushStatus?.isSubscribed) {
-      const ok = await unsubscribeFromPush();
-      if (ok) {
-        setPushMessage({ type: 'success', text: 'Notificaciones desactivadas en este dispositivo.' });
+    try {
+      if (pushStatus?.isSubscribed) {
+        const ok = await unsubscribeFromPush();
+        if (ok) {
+          setPushMessage({ type: 'success', text: 'Suscripción Web Push desactivada en este dispositivo.' });
+        }
+      } else {
+        const res = await subscribeToPush();
+        if (res.success) {
+          setPushMessage({
+            type: 'success',
+            text: '¡Notificaciones activadas con éxito! Este dispositivo recibirá avisos programados.',
+          });
+        } else {
+          setPushMessage({
+            type: 'error',
+            text: res.error || 'No se pudo activar la suscripción.',
+          });
+        }
       }
-    } else {
-      const res = await subscribeToPush();
+      await checkPush();
+    } catch (err: any) {
+      setPushMessage({
+        type: 'error',
+        text: 'Error gestionando notificaciones',
+        details: err?.message,
+      });
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+  const handleSendTestPush = async () => {
+    if (pushLoading) return;
+    setPushLoading(true);
+    setPushMessage(null);
+    setLastTestResult(null);
+
+    try {
+      const res = await sendTestNotification();
+      setLastTestResult(res);
       if (res.success) {
         setPushMessage({
           type: 'success',
-          text: '¡Suscripción Web Push activada con éxito! Este dispositivo recibirá avisos programados.',
+          text: res.message,
+          details: res.details,
         });
       } else {
         setPushMessage({
           type: 'error',
-          text: res.error || 'No se pudo activar la suscripción Web Push.',
+          text: res.message,
+          details: res.details,
         });
       }
+      await checkPush();
+    } catch (err: any) {
+      setPushMessage({
+        type: 'error',
+        text: 'Error al enviar la notificación de prueba',
+        details: err?.message,
+      });
+    } finally {
+      setPushLoading(false);
     }
-
-    await checkPush();
-    setPushLoading(false);
-  };
-
-  const handleSendTestPush = async () => {
-    setPushLoading(true);
-    setPushMessage(null);
-    const res = await sendTestNotification();
-    setPushMessage({
-      type: res.success ? 'success' : 'error',
-      text: res.message,
-    });
-    setPushLoading(false);
   };
 
   const handleTriggerNow = async () => {
+    if (pushLoading) return;
     setPushLoading(true);
     setPushMessage(null);
-    const res = await triggerDailyReminderNow(pendingTasksSummary);
-    setPushMessage({
-      type: res.success ? 'success' : 'error',
-      text: res.message,
-    });
-    setPushLoading(false);
+
+    try {
+      const res = await triggerDailyReminderNow(pendingTasksSummary);
+      if (res.success) {
+        setPushMessage({
+          type: 'success',
+          text: res.message,
+          details: 'Emitido en el dispositivo con tus datos académicos reales.',
+        });
+      } else {
+        setPushMessage({
+          type: 'error',
+          text: res.message,
+          details: res.details,
+        });
+      }
+      await checkPush();
+    } catch (err: any) {
+      setPushMessage({
+        type: 'error',
+        text: 'Error al emitir el resumen diario',
+        details: err?.message,
+      });
+    } finally {
+      setPushLoading(false);
+    }
   };
 
   const handleDayToggle = (dayId: number) => {
@@ -588,101 +699,327 @@ export const SettingsView: React.FC<Props> = ({
       </form>
 
       {/* ======================================================== */}
-      {/* 5. SISTEMA DE NOTIFICACIONES WEB PUSH REALES             */}
+      {/* 5. SISTEMA DE NOTIFICACIONES Y DIAGNÓSTICO EN VIVO       */}
       {/* ======================================================== */}
-      <div className="card-dark rounded-2xl p-6 space-y-5 border border-emerald-500/20">
-        <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+      <div className="card-dark rounded-2xl p-6 space-y-6 border border-emerald-500/25 shadow-xl shadow-black/40">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-zinc-800">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0">
               <Bell className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">Dispositivo y Web Push API</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-white">Sistema de Notificaciones y Diagnóstico</h2>
+                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  En Vivo
+                </span>
+              </div>
               <p className="text-xs text-zinc-400">
-                Suscripción en este navegador para recibir alertas en segundo plano.
+                Supervisión en tiempo real del motor de avisos, permisos, Service Worker y entrega en tu pantalla.
               </p>
             </div>
           </div>
 
-          <span
-            className={`text-xs font-bold px-3 py-1 rounded-full border ${
-              pushStatus?.isSubscribed
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-xs font-bold px-3 py-1 rounded-full border inline-flex items-center gap-1.5 ${
+                pushStatus?.permission === 'granted'
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                  : pushStatus?.permission === 'denied'
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                  : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  pushStatus?.permission === 'granted'
+                    ? 'bg-emerald-400'
+                    : pushStatus?.permission === 'denied'
+                    ? 'bg-rose-400'
+                    : 'bg-amber-400 animate-pulse'
+                }`}
+              />
+              <span>
+                {pushStatus?.permission === 'granted'
+                  ? 'Permiso Concedido'
+                  : pushStatus?.permission === 'denied'
+                  ? 'Permiso Bloqueado'
+                  : 'Permiso Pendiente'}
+              </span>
+            </span>
+
+            <button
+              type="button"
+              onClick={checkPush}
+              title="Actualizar diagnóstico"
+              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition cursor-pointer"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* FASE 5: GRID DE DIAGNÓSTICO VISIBLE */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+          {/* 1. Compatibilidad del Navegador */}
+          <div className="p-3.5 rounded-xl bg-[#141924] border border-zinc-800/90 space-y-1.5">
+            <div className="flex items-center justify-between text-zinc-400 font-medium">
+              <span className="flex items-center gap-1.5">
+                <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+                Compatibilidad
+              </span>
+              <span className="font-semibold text-white">
+                {pushStatus?.isSupported ? '100% Compatible' : 'Limitada'}
+              </span>
+            </div>
+            <div className="text-[11px] text-zinc-400 space-y-0.5">
+              <p>• Notification API: <span className={pushStatus?.hasNotificationAPI ? 'text-emerald-400 font-semibold' : 'text-rose-400'}>{pushStatus?.hasNotificationAPI ? 'Disponible' : 'No soportada'}</span></p>
+              <p>• Service Worker: <span className={pushStatus?.hasServiceWorker ? 'text-emerald-400 font-semibold' : 'text-rose-400'}>{pushStatus?.hasServiceWorker ? 'Disponible' : 'No soportado'}</span></p>
+              <p>• Push Manager: <span className={pushStatus?.hasPushManager ? 'text-emerald-400 font-semibold' : 'text-amber-400'}>{pushStatus?.hasPushManager ? 'Disponible' : 'Modo local'}</span></p>
+            </div>
+          </div>
+
+          {/* 2. Estado del Permiso */}
+          <div className="p-3.5 rounded-xl bg-[#141924] border border-zinc-800/90 space-y-1.5">
+            <div className="flex items-center justify-between text-zinc-400 font-medium">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                Permiso del Sistema
+              </span>
+              <span
+                className={`font-bold capitalize ${
+                  pushStatus?.permission === 'granted'
+                    ? 'text-emerald-400'
+                    : pushStatus?.permission === 'denied'
+                    ? 'text-rose-400'
+                    : 'text-amber-400'
+                }`}
+              >
+                {pushStatus?.permission === 'granted'
+                  ? 'Concedido'
+                  : pushStatus?.permission === 'denied'
+                  ? 'Denegado'
+                  : 'Pendiente'}
+              </span>
+            </div>
+            <p className="text-[11px] text-zinc-400 leading-tight">
+              {pushStatus?.permission === 'granted'
+                ? 'El navegador tiene autorización para mostrar alertas en tu pantalla.'
+                : pushStatus?.permission === 'denied'
+                ? 'Bloqueado. Requiere autorización manual en la configuración del sitio.'
+                : 'Pendiente de confirmación. Pulsa el botón inferior para solicitar permiso.'}
+            </p>
+            {pushStatus?.permission === 'default' && (
+              <button
+                type="button"
+                onClick={handleRequestPermission}
+                disabled={isRequestingPermission}
+                className="mt-1 w-full py-1.5 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 font-semibold text-[11px] border border-emerald-500/40 transition cursor-pointer"
+              >
+                {isRequestingPermission ? 'Esperando respuesta...' : 'Solicitar Permiso Ahora'}
+              </button>
+            )}
+          </div>
+
+          {/* 3. Service Worker */}
+          <div className="p-3.5 rounded-xl bg-[#141924] border border-zinc-800/90 space-y-1.5">
+            <div className="flex items-center justify-between text-zinc-400 font-medium">
+              <span className="flex items-center gap-1.5">
+                <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                Service Worker
+              </span>
+              <span className={`font-semibold ${pushStatus?.registration ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {pushStatus?.registration ? 'Operativo' : 'Inactivo'}
+              </span>
+            </div>
+            <p className="text-[11px] text-zinc-400 leading-tight">
+              Archivo: <code className="text-zinc-300 font-mono">/sw.js</code>
+            </p>
+            <p className="text-[11px] text-zinc-400 leading-tight">
+              Estado: <span className="text-zinc-300 font-medium">{pushStatus?.registration?.active ? 'Controlando página (Background activo)' : 'Registrado'}</span>
+            </p>
+          </div>
+
+          {/* 4. Canal de Notificación Activo */}
+          <div className="p-3.5 rounded-xl bg-[#141924] border border-zinc-800/90 space-y-1.5">
+            <div className="flex items-center justify-between text-zinc-400 font-medium">
+              <span className="flex items-center gap-1.5">
+                <Send className="w-3.5 h-3.5 text-emerald-400" />
+                Canal de Entrega
+              </span>
+              <span className="font-semibold text-white">
+                {pushStatus?.isSubscribed ? 'Web Push' : 'Local Directo'}
+              </span>
+            </div>
+            <p className="text-[11px] text-zinc-400 leading-tight">
+              {pushStatus?.isSubscribed
+                ? 'Suscripción Web Push activa para segundo plano.'
+                : 'Notificaciones locales garantizadas en primer plano mediante Service Worker.'}
+            </p>
+          </div>
+
+          {/* 5. Servidor / Backend */}
+          <div className="p-3.5 rounded-xl bg-[#141924] border border-zinc-800/90 space-y-1.5">
+            <div className="flex items-center justify-between text-zinc-400 font-medium">
+              <span className="flex items-center gap-1.5">
+                <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+                Servidor Backend
+              </span>
+              <span
+                className={`font-semibold ${
+                  pushStatus?.backendAvailable ? 'text-emerald-400' : 'text-zinc-400'
+                }`}
+              >
+                {pushStatus?.backendAvailable
+                  ? `Conectado (${pushStatus.backendLatencyMs}ms)`
+                  : 'Modo Estático (Vercel)'}
+              </span>
+            </div>
+            <p className="text-[11px] text-zinc-400 leading-tight">
+              {pushStatus?.backendAvailable
+                ? 'Rutas API /api/health y /api/push operativas en el servidor.'
+                : 'Despliegue SPA en Vercel. Las notificaciones del navegador funcionan sin depender de backend.'}
+            </p>
+          </div>
+
+          {/* 6. Próximo Recordatorio Programado */}
+          <div className="p-3.5 rounded-xl bg-[#141924] border border-zinc-800/90 space-y-1.5">
+            <div className="flex items-center justify-between text-zinc-400 font-medium">
+              <span className="flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                Próximo Recordatorio
+              </span>
+              <span className="font-semibold text-emerald-400">
+                {nextReminderInfo.formattedTime}
+              </span>
+            </div>
+            <p className="text-[11px] text-zinc-300 font-medium leading-tight">
+              {nextReminderInfo.isActive
+                ? `Programado: ${nextReminderInfo.relativeText}`
+                : 'Avisos diarios desactivados'}
+            </p>
+            <p className="text-[10px] text-zinc-500">
+              Zona: {timezone} • Días activos: {selectedDays.length}/7
+            </p>
+          </div>
+        </div>
+
+        {/* Instrucciones de desbloqueo si el permiso está denegado */}
+        {pushStatus?.permission === 'denied' && (
+          <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs space-y-2">
+            <div className="flex items-center gap-2 text-rose-300 font-bold">
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>Instrucciones para Desbloquear Notificaciones:</span>
+            </div>
+            <ol className="list-decimal list-inside text-zinc-300 text-[11px] space-y-1 leading-relaxed pl-1">
+              <li>Haz clic en el <strong>icono de candado o controles</strong> situado a la izquierda de la URL en la barra del navegador.</li>
+              <li>Busca el apartado <strong>«Permisos del sitio»</strong> o <strong>«Notificaciones»</strong>.</li>
+              <li>Cambia el selector de <em>«Bloquear»</em> a <strong>«Permitir»</strong>.</li>
+              <li>Vuelve a esta pantalla y pulsa el botón <strong>«Actualizar Diagnóstico»</strong>.</li>
+            </ol>
+          </div>
+        )}
+
+        {/* Guía para iPhone / iPad */}
+        {pushStatus?.isIOS && !pushStatus?.isStandalone && (
+          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs space-y-2">
+            <div className="flex items-center gap-2 text-amber-300 font-bold">
+              <Smartphone className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>Requisito en iPhone / iPad (iOS 16.4 o superior):</span>
+            </div>
+            <p className="text-zinc-300 text-[11px] leading-relaxed">
+              Apple no permite notificaciones web desde pestañas normales de Safari. Para recibirlas, debes pulsar <strong>Compartir <Share2 className="w-3 h-3 inline mx-0.5 text-zinc-400" /> &gt; «Añadir a la pantalla de inicio»</strong> y abrir StudyFlow como app instalada.
+            </p>
+          </div>
+        )}
+
+        {/* Registro del Último Evento / Error Real */}
+        {lastTestResult && (
+          <div
+            className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 ${
+              lastTestResult.success
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
             }`}
           >
-            {pushStatus?.isSubscribed ? 'Suscrito en este dispositivo' : 'No suscrito'}
-          </span>
-        </div>
+            {lastTestResult.success ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            )}
+            <div className="space-y-0.5">
+              <p className="font-bold">{lastTestResult.message}</p>
+              {lastTestResult.details && (
+                <p className="text-[11px] opacity-90">{lastTestResult.details}</p>
+              )}
+              {lastTestResult.method && (
+                <p className="text-[10px] text-zinc-400">
+                  Método de emisión: <span className="font-mono text-zinc-300">{lastTestResult.method}</span>
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
-        {/* Device Status Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-          <div className="p-3.5 rounded-xl bg-[#161c28] border border-zinc-800 space-y-1">
-            <span className="text-zinc-400 font-medium">Permiso en el Navegador</span>
-            <p className="font-bold text-white capitalize">
-              {pushStatus ? pushStatus.permission : 'Comprobando...'}
-            </p>
-          </div>
-          <div className="p-3.5 rounded-xl bg-[#161c28] border border-zinc-800 space-y-1">
-            <span className="text-zinc-400 font-medium">Service Worker</span>
-            <p className="font-bold text-emerald-400">
-              {pushStatus?.registration ? 'Operativo (sw.js)' : 'Pendiente'}
-            </p>
-          </div>
-          <div className="p-3.5 rounded-xl bg-[#161c28] border border-zinc-800 space-y-1">
-            <span className="text-zinc-400 font-medium">Compatibilidad</span>
-            <p className="font-bold text-white">
-              {pushStatus?.isSupported ? 'Push API disponible' : 'Limitado'}
-            </p>
-          </div>
-        </div>
-
-        {/* Guidance for iPhone & Server scheduling */}
-        <div className="p-4 rounded-xl bg-[#141924] border border-zinc-800 text-xs space-y-2">
-          <div className="flex items-center gap-2 text-emerald-400 font-bold">
-            <Smartphone className="w-4 h-4" />
-            <span>Limitaciones en iPhone / iPad (iOS 16.4+):</span>
-          </div>
-          <p className="text-zinc-300 leading-relaxed">
-            Apple requiere que StudyFlow se instale en la pantalla de inicio desde Safari (pulsar <strong>Compartir <Share2 className="w-3 h-3 inline mx-0.5 text-zinc-400" /> &gt; «Añadir a la pantalla de inicio»</strong>) y se abra desde allí para habilitar los permisos Web Push.
-          </p>
-        </div>
-
-        {/* Push actions */}
-        <div className="flex flex-wrap items-center gap-3 pt-1">
+        {/* Botones de acción principales */}
+        <div className="flex flex-wrap items-center gap-3 pt-2">
+          {/* 1. Activar / Desactivar */}
           <button
+            type="button"
             onClick={handleTogglePush}
             disabled={pushLoading}
             className={`px-4 py-2.5 rounded-xl font-semibold text-xs transition cursor-pointer flex items-center gap-2 ${
               pushStatus?.isSubscribed
-                ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
                 : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-950/60'
-            }`}
+            } ${pushLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            <Bell className="w-4 h-4" />
+            {pushLoading ? (
+              <RefreshCw className="w-4 h-4 animate-spin text-white" />
+            ) : (
+              <Bell className="w-4 h-4" />
+            )}
             <span>
-              {pushStatus?.isSubscribed
-                ? 'Desactivar en este dispositivo'
+              {pushLoading
+                ? 'Procesando...'
+                : pushStatus?.isSubscribed
+                ? 'Desactivar Suscripción Push'
                 : 'Activar Notificaciones en este Dispositivo'}
             </span>
           </button>
 
+          {/* 2. Enviar Notificación de Prueba (Flujo único verificado) */}
           <button
+            type="button"
             onClick={handleSendTestPush}
             disabled={pushLoading}
-            className="px-4 py-2.5 rounded-xl bg-[#161c28] hover:bg-[#1d2535] text-zinc-200 border border-zinc-700 font-semibold text-xs transition flex items-center gap-2 cursor-pointer"
+            className={`px-4 py-2.5 rounded-xl bg-[#161c28] hover:bg-[#1d2535] text-zinc-200 border border-zinc-700 font-semibold text-xs transition flex items-center gap-2 cursor-pointer ${
+              pushLoading ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
           >
-            <Send className="w-3.5 h-3.5 text-emerald-400" />
+            {pushLoading ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+            ) : (
+              <Send className="w-3.5 h-3.5 text-emerald-400" />
+            )}
             <span>Enviar Notificación de Prueba</span>
           </button>
 
+          {/* 3. Emitir Resumen Diario Ahora */}
           <button
+            type="button"
             onClick={handleTriggerNow}
             disabled={pushLoading}
-            className="px-4 py-2.5 rounded-xl bg-[#161c28] hover:bg-[#1d2535] text-amber-300 border border-amber-500/30 font-semibold text-xs transition flex items-center gap-2 cursor-pointer"
+            className={`px-4 py-2.5 rounded-xl bg-[#161c28] hover:bg-[#1d2535] text-amber-300 border border-amber-500/30 font-semibold text-xs transition flex items-center gap-2 cursor-pointer ${
+              pushLoading ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
             title="Genera un aviso real con tus deberes pendientes y exámenes de hoy"
           >
-            <Clock className="w-3.5 h-3.5" />
+            {pushLoading ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+            ) : (
+              <Clock className="w-3.5 h-3.5 text-amber-400" />
+            )}
             <span>Emitir Resumen Diario Ahora</span>
           </button>
         </div>

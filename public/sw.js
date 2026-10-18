@@ -127,6 +127,34 @@ self.addEventListener('push', (event) => {
   );
 });
 
+// CLIENT MESSAGE LISTENER (Permite a la aplicación solicitar mostrar notificaciones directas)
+self.addEventListener('message', (event) => {
+  if (!event.data) return;
+
+  if (event.data.type === 'SHOW_NOTIFICATION') {
+    const { title, options } = event.data;
+    const notificationOptions = {
+      body: options?.body || 'Aviso de StudyFlow',
+      icon: options?.icon || '/icon-192.png',
+      badge: options?.badge || '/icon-192.png',
+      vibrate: options?.vibrate || [100, 50, 100],
+      data: options?.data || { url: '/', timestamp: Date.now() },
+      tag: options?.tag || 'studyflow-' + Date.now(),
+      renotify: true,
+      actions: [
+        { action: 'open', title: 'Abrir StudyFlow' },
+        { action: 'dismiss', title: 'Entendido' }
+      ]
+    };
+
+    event.waitUntil(
+      self.registration.showNotification(title || 'StudyFlow', notificationOptions)
+    );
+  } else if (event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 // NOTIFICATION CLICK LISTENER
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
