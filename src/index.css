@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: #090b0e;
+    color: #f3f4f6;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0d1117;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #242c3d;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #10b981;
+  }
+}
+
+/* Glassmorphism and dark cards */
+.card-dark {
+  background-color: #12161f;
+  border: 1px solid #1f2737;
+}
+
+.card-dark-hover {
+  background-color: #12161f;
+  border: 1px solid #1f2737;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.card-dark-hover:hover {
+  background-color: #161c28;
+  border-color: #2e3a52;
+}
+
+/* Safe area for mobile iOS home indicator and notch */
+.safe-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+.safe-top {
+  padding-top: max(1rem, env(safe-area-inset-top));
+}

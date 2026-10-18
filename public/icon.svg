@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="30%" r="80%">
+      <stop offset="0%" stop-color="#141922"/>
+      <stop offset="100%" stop-color="#080a0d"/>
+    </radialGradient>
+    <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#065f46"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#10b981" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded squircle -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect width="508" height="508" x="2" y="2" rx="110" fill="none" stroke="#222b38" stroke-width="2"/>
+
+  <!-- Glowing icon motif: Academic cap + Flow arcs -->
+  <g filter="url(#glow)">
+    <!-- Central stylized crest -->
+    <path d="M256 128 L390 196 L256 264 L122 196 Z" fill="url(#emeraldGrad)"/>
+    
+    <!-- Lower mortarboard / open wings -->
+    <path d="M168 225 L168 300 Q256 350 344 300 L344 225 Q256 268 168 225 Z" fill="#047857" opacity="0.95"/>
+    <path d="M190 290 Q256 330 322 290 L322 305 Q256 345 190 305 Z" fill="#6ee7b7" opacity="0.8"/>
+
+    <!-- Tassel ribbon -->
+    <path d="M370 206 L396 260 L402 340 L388 340 L392 264 L370 216 Z" fill="#a7f3d0"/>
+
+    <!-- Flow dynamic swooshes underneath (StudyFlow productivity waves) -->
+    <path d="M130 368 C190 340 322 340 382 368" stroke="url(#emeraldGrad)" stroke-width="12" stroke-linecap="round" fill="none"/>
+    <path d="M164 402 C210 382 302 382 348 402" stroke="#10b981" stroke-width="8" stroke-linecap="round" opacity="0.6" fill="none"/>
+  </g>
+</svg>

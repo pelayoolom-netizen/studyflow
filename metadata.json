@@ -1,0 +1,6 @@
+{
+  "name": "StudyFlow — Central Académica Personal en la Nube",
+  "description": "Organizador académico definitivo para estudiantes: deberes, exámenes con notas ponderadas, calendario, temporizador de estudio y notificaciones Push en la nube.",
+  "requestFramePermissions": ["notifications"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
