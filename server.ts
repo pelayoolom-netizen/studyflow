@@ -301,8 +301,9 @@ REGLAS DE CLASIFICACIÓN Y EXTRACCIÓN:
 
     // Candidates in prioritized order with automatic fallback in case of high-demand spikes
     const CANDIDATE_MODELS = [
-      'gemini-3.8-flash',
       'gemini-3-flash-preview',
+      'gemini-2.5-flash',
+      'gemini-3.8-flash',
       'gemini-3.1-flash-lite',
       'gemini-flash-latest',
     ];

@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   AlertCircle,
   X,
-  Volume2,
   RotateCcw,
   Calendar,
   Clock,
@@ -18,6 +17,8 @@ import {
   Check,
   FileText,
   AlertTriangle,
+  Keyboard,
+  Info,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Assignment, Exam, Subject, Priority } from '../types';
@@ -75,37 +76,49 @@ export const VoiceAssistantModal: React.FC<Props> = ({
   onSaveSubject,
   onSuccessSaved,
 }) => {
-  // Voice Recording States
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [recordedAudioBlob, setRecordedAudioBlob] = useState<Blob | null>(null);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [audioMimeType, setAudioMimeType] = useState<string>('audio/webm');
-  const [micError, setMicError] = useState<string | null>(null);
+  // Speech Recognition States
+  const [isSpeechSupported, setIsSpeechSupported] = useState<boolean>(true);
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const [listeningSeconds, setListeningSeconds] = useState<number>(0);
+  const [dictationNotice, setDictationNotice] = useState<string | null>(null);
 
-  // Transcription & Prompt Text
-  const [transcriptText, setTranscriptText] = useState('');
+  // Text inputs
+  const [transcriptText, setTranscriptText] = useState<string>('');
+  const [interimText, setInterimText] = useState<string>('');
 
   // Gemini Analysis State
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [apiError, setApiError] = useState<string | null>(null);
-  const [isMissingApiKey, setIsMissingApiKey] = useState(false);
+  const [isMissingApiKey, setIsMissingApiKey] = useState<boolean>(false);
 
   // Extracted Items Review Step
   const [extractedItems, setExtractedItems] = useState<ExtractedVoiceItem[]>([]);
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
   const [step, setStep] = useState<'record' | 'review'>('record');
 
-  // MediaRecorder references
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
+  // References for SpeechRecognition & Timer
+  const recognitionRef = useRef<any>(null);
+  const isListeningRef = useRef<boolean>(false);
   const timerIntervalRef = useRef<any>(null);
-  const speechRecognitionRef = useRef<any>(null);
 
-  // Check Gemini status on modal open
+  // Check Web Speech API support and Gemini status on modal open
   useEffect(() => {
     if (isOpen) {
+      const SpeechRecognitionClass =
+        typeof window !== 'undefined'
+          ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+          : null;
+
+      if (!SpeechRecognitionClass) {
+        setIsSpeechSupported(false);
+        setDictationNotice(
+          'El dictado no está disponible en este navegador. Puedes usar el micrófono del teclado o escribir el texto.'
+        );
+      } else {
+        setIsSpeechSupported(true);
+        setDictationNotice(null);
+      }
+
       fetch('/api/gemini/status')
         .then((res) => res.json())
         .then((data) => {
@@ -116,220 +129,178 @@ export const VoiceAssistantModal: React.FC<Props> = ({
           }
         })
         .catch(() => {
-          // If status fails, still allow user to attempt
+          // Keep default
         });
     } else {
-      // Reset state on close
-      cleanupRecording();
-      setRecordedAudioBlob(null);
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
-        setAudioUrl(null);
-      }
+      // Modal closed: stop dictation and reset transient state
+      stopListening();
       setTranscriptText('');
+      setInterimText('');
       setExtractedItems([]);
       setStep('record');
-      setMicError(null);
       setApiError(null);
+      setDictationNotice(null);
       setIsAnalyzing(false);
       setIsSaving(false);
     }
   }, [isOpen]);
 
-  // Clean up recording tracks & intervals
-  const cleanupRecording = () => {
-    if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-      timerIntervalRef.current = null;
-    }
-    if (speechRecognitionRef.current) {
-      try {
-        speechRecognitionRef.current.stop();
-      } catch {
-        // ignore
-      }
-      speechRecognitionRef.current = null;
-    }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch {
-        // ignore
-      }
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    setIsRecording(false);
-  };
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopListening();
+    };
+  }, []);
 
-  // Start Voice Recording with real MediaRecorder & getUserMedia
-  const startRecording = async () => {
-    setMicError(null);
+  // Timer while listening
+  useEffect(() => {
+    if (isListening) {
+      setListeningSeconds(0);
+      timerIntervalRef.current = setInterval(() => {
+        setListeningSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+    }
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+      }
+    };
+  }, [isListening]);
+
+  // Start Speech Recognition
+  const startListening = () => {
     setApiError(null);
-    audioChunksRef.current = [];
+    setDictationNotice(null);
 
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setMicError('Tu navegador no soporta captura de audio mediante getUserMedia. Puedes escribir manualmente abajo.');
+    const SpeechRecognitionClass =
+      typeof window !== 'undefined'
+        ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+        : null;
+
+    if (!SpeechRecognitionClass) {
+      setIsSpeechSupported(false);
+      setDictationNotice(
+        'El dictado no está disponible en este navegador. Puedes usar el micrófono del teclado o escribir el texto.'
+      );
       return;
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-
-      // Detect supported mimeType
-      const mimeTypes = [
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/mp4',
-        'audio/ogg;codecs=opus',
-        'audio/ogg',
-        'audio/wav',
-      ];
-      let supportedMime = '';
-      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported) {
-        for (const mime of mimeTypes) {
-          if (MediaRecorder.isTypeSupported(mime)) {
-            supportedMime = mime;
-            break;
-          }
-        }
-      }
-
-      const activeMime = supportedMime || 'audio/webm';
-      setAudioMimeType(activeMime);
-
-      const options = supportedMime ? { mimeType: supportedMime } : undefined;
-      const mediaRecorder = new MediaRecorder(stream, options);
-      mediaRecorderRef.current = mediaRecorder;
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: activeMime });
-        if (blob.size > 0) {
-          setRecordedAudioBlob(blob);
-          const url = URL.createObjectURL(blob);
-          setAudioUrl(url);
-        }
-
-        // Release hardware mic tracks
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach((track) => track.stop());
-          streamRef.current = null;
-        }
-      };
-
-      // Optional real-time speech recognition for instant visual feedback on Chromium browsers
-      const SpeechRecognition =
-        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
+      if (recognitionRef.current) {
         try {
-          const recognition = new SpeechRecognition();
-          recognition.continuous = true;
-          recognition.interimResults = true;
-          recognition.lang = 'es-ES';
-
-          recognition.onresult = (event: any) => {
-            let fullTranscript = '';
-            for (let i = 0; i < event.results.length; i++) {
-              fullTranscript += event.results[i][0].transcript + ' ';
-            }
-            if (fullTranscript.trim()) {
-              setTranscriptText(fullTranscript.trim());
-            }
-          };
-
-          recognition.onerror = () => {
-            // SpeechRecognition is purely optional
-          };
-
-          recognition.start();
-          speechRecognitionRef.current = recognition;
+          recognitionRef.current.abort();
         } catch {
           // ignore
         }
       }
 
-      mediaRecorder.start(250); // Slice into 250ms chunks
-      setIsRecording(true);
-      setRecordingSeconds(0);
+      const recognition = new SpeechRecognitionClass();
+      recognition.lang = 'es-ES';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
 
-      timerIntervalRef.current = setInterval(() => {
-        setRecordingSeconds((prev) => prev + 1);
-      }, 1000);
+      recognition.onstart = () => {
+        isListeningRef.current = true;
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        let finalChunk = '';
+        let interimChunk = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          const text = result[0]?.transcript || '';
+          if (result.isFinal) {
+            finalChunk += text + ' ';
+          } else {
+            interimChunk += text;
+          }
+        }
+
+        if (finalChunk.trim()) {
+          setTranscriptText((prev) => {
+            const trimmed = prev.trim();
+            return trimmed ? `${trimmed} ${finalChunk.trim()}` : finalChunk.trim();
+          });
+        }
+        setInterimText(interimChunk.trim());
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn('SpeechRecognition error:', event.error);
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          isListeningRef.current = false;
+          setIsListening(false);
+          setDictationNotice(
+            'Permiso de micrófono denegado. Permite el acceso al micrófono en el navegador o escribe directamente en el cuadro de texto.'
+          );
+        } else if (event.error === 'network') {
+          setDictationNotice('Error de red en el servicio de reconocimiento de voz. Puedes escribir el texto manualmente.');
+        } else if (event.error === 'no-speech') {
+          // Silent pause; continue listening if flag is active
+        }
+      };
+
+      recognition.onend = () => {
+        // Continuous dictation: if still supposed to listen and not manually stopped, restart
+        if (isListeningRef.current) {
+          try {
+            recognition.start();
+          } catch {
+            isListeningRef.current = false;
+            setIsListening(false);
+          }
+        } else {
+          setIsListening(false);
+        }
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+      isListeningRef.current = true;
+      setIsListening(true);
     } catch (err: any) {
-      console.error('Error al acceder al micrófono:', err);
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setMicError('Permiso de micrófono denegado. Permite el acceso al micrófono en la barra de tu navegador o escribe manualmente.');
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        setMicError('No se encontró ningún micrófono conectado en tu dispositivo.');
-      } else {
-        setMicError(`No se pudo iniciar la grabación: ${err.message || 'Error desconocido'}`);
-      }
-      cleanupRecording();
+      console.error('Error starting SpeechRecognition:', err);
+      setIsListening(false);
+      isListeningRef.current = false;
+      setDictationNotice('No se pudo iniciar el dictado por voz. Puedes escribir el texto directamente en el cuadro.');
     }
   };
 
-  // Helper to safely stop the recorder and await the finished Blob
-  const stopAndCollectAudio = (): Promise<{ blob: Blob | null; mime: string }> => {
-    return new Promise((resolve) => {
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-        timerIntervalRef.current = null;
+  // Stop Speech Recognition
+  const stopListening = () => {
+    isListeningRef.current = false;
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        // ignore
       }
-      if (speechRecognitionRef.current) {
-        try {
-          speechRecognitionRef.current.stop();
-        } catch {}
-        speechRecognitionRef.current = null;
-      }
-
-      const mr = mediaRecorderRef.current;
-      if (mr && mr.state !== 'inactive') {
-        mr.onstop = () => {
-          const mime = audioMimeType || mr.mimeType || 'audio/webm';
-          const blob = new Blob(audioChunksRef.current, { type: mime });
-          if (blob.size > 0) {
-            setRecordedAudioBlob(blob);
-            const url = URL.createObjectURL(blob);
-            setAudioUrl(url);
-          }
-          if (streamRef.current) {
-            streamRef.current.getTracks().forEach((track) => track.stop());
-            streamRef.current = null;
-          }
-          setIsRecording(false);
-          resolve({ blob: blob.size > 0 ? blob : null, mime });
-        };
-        mr.stop();
-      } else {
-        setIsRecording(false);
-        resolve({ blob: recordedAudioBlob, mime: audioMimeType });
-      }
-    });
+      recognitionRef.current = null;
+    }
+    // Commit any residual interim text
+    if (interimText.trim()) {
+      setTranscriptText((prev) => {
+        const trimmed = prev.trim();
+        return trimmed ? `${trimmed} ${interimText.trim()}` : interimText.trim();
+      });
+      setInterimText('');
+    }
+    setIsListening(false);
   };
 
-  // Convert Blob to Base64
-  const blobToBase64 = (blob: Blob): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64data = reader.result as string;
-        const base64Content = base64data.includes(',')
-          ? base64data.split(',')[1]
-          : base64data;
-        resolve(base64Content);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
+  // Format seconds into MM:SS
+  const formatSeconds = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
   // Check if an item already exists in current assignments or exams
@@ -352,38 +323,28 @@ export const VoiceAssistantModal: React.FC<Props> = ({
     }
   };
 
-  // Analyze with Gemini
+  // Analyze text with Gemini via backend
   const handleAnalyzeWithGemini = async () => {
     setApiError(null);
 
-    // Stop recorder if actively recording and get the resulting Blob
-    let audioBlobToUse: Blob | null = recordedAudioBlob;
-    let mimeToUse = audioMimeType;
-
-    if (isRecording || (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording')) {
-      const result = await stopAndCollectAudio();
-      audioBlobToUse = result.blob;
-      mimeToUse = result.mime;
+    // Stop listening if currently dictating and capture everything
+    if (isListening) {
+      stopListening();
     }
 
-    const hasAudio = Boolean(audioBlobToUse && audioBlobToUse.size > 200);
-    const hasText = Boolean(transcriptText.trim());
+    // Combine any pending interim text with transcriptText
+    const fullText = [transcriptText.trim(), interimText.trim()].filter(Boolean).join(' ');
 
-    if (!hasAudio && !hasText) {
-      setApiError('Graba un mensaje de voz o escribe lo que tienes que hacer en el campo de texto antes de analizar.');
+    if (!fullText.trim()) {
+      setApiError('Por favor, dicta o escribe lo que tienes que hacer antes de analizar con Gemini.');
       return;
     }
 
     setIsAnalyzing(true);
 
     try {
-      let audioBase64 = '';
-      if (hasAudio && audioBlobToUse) {
-        audioBase64 = await blobToBase64(audioBlobToUse);
-      }
-
       const clientDate = new Date().toISOString();
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Madrid';
+      const timezone = 'Europe/Madrid';
       const existingSubjects = subjects.map((s) => s.name);
 
       const response = await fetch('/api/gemini/analyze-voice', {
@@ -392,9 +353,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          audioBase64: audioBase64 || undefined,
-          mimeType: mimeToUse,
-          text: transcriptText.trim() || undefined,
+          text: fullText,
           clientDate,
           timezone,
           existingSubjects,
@@ -407,15 +366,15 @@ export const VoiceAssistantModal: React.FC<Props> = ({
         if (data.missingKey) {
           setIsMissingApiKey(true);
         }
+        // Preserve the text for retry!
         throw new Error(data.error || 'Error al comunicarse con Gemini');
       }
 
-      if (data.transcription && !transcriptText.trim()) {
-        setTranscriptText(data.transcription);
-      }
-
       if (!data.items || data.items.length === 0) {
-        setApiError('Gemini no detectó ningún deber ni examen específico. Intenta decir la asignatura y la fecha con mayor claridad (ej: "Para mañana ejercicios de Matemáticas y el viernes examen de Historia").');
+        // Keep the text in transcriptText so the user can easily tweak and retry
+        setApiError(
+          'Gemini no detectó ningún deber ni examen específico en el texto. Revisa o añade detalles (por ejemplo: "Para mañana ejercicios de Matemáticas y el viernes examen de Historia") y pulsa de nuevo en Analizar.'
+        );
         setIsAnalyzing(false);
         return;
       }
@@ -461,13 +420,14 @@ export const VoiceAssistantModal: React.FC<Props> = ({
       setStep('review');
     } catch (err: any) {
       console.error('Error analyzing with Gemini:', err);
-      setApiError(err.message || 'Error inesperado al conectar con Gemini');
+      // Retain the text so the user can retry!
+      setApiError(err.message || 'Error inesperado al conectar con Gemini. Tu texto se conserva para reintentar.');
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  // Modify Extracted Item
+  // Modify Extracted Item in Review Step
   const handleUpdateItem = (id: string, updates: Partial<ExtractedVoiceItem>) => {
     setExtractedItems((prev) =>
       prev.map((item) => {
@@ -552,7 +512,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
           continue;
         }
 
-        // 3. Save Assignment or Exam
+        // 3. Save Assignment or Exam into real storage
         if (item.type === 'deber') {
           const newAssignment: Assignment = {
             id: `asg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -612,13 +572,6 @@ export const VoiceAssistantModal: React.FC<Props> = ({
     }
   };
 
-  // Helper format seconds (00:00)
-  const formatSeconds = (sec: number) => {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
   // Helper for input type datetime-local
   const toLocalInputValue = (isoStr: string) => {
     try {
@@ -660,11 +613,11 @@ export const VoiceAssistantModal: React.FC<Props> = ({
                   Añadir con IA 🎙️
                 </h2>
                 <span className="px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 text-[10px] font-bold border border-violet-500/30">
-                  Gemini Flash
+                  Dictado + Gemini
                 </span>
               </div>
               <p className="text-xs text-zinc-400">
-                Di o escribe tus deberes y exámenes en lenguaje natural.
+                Dicta por voz o escribe tus deberes y exámenes en lenguaje natural.
               </p>
             </div>
           </div>
@@ -684,11 +637,11 @@ export const VoiceAssistantModal: React.FC<Props> = ({
             <div>
               <span className="font-bold block">Configuración de Gemini Requerida:</span>
               <span>
-                Para analizar voz se necesita la variable{' '}
+                Para analizar tareas con IA se necesita la variable{' '}
                 <code className="bg-amber-950/60 px-1 py-0.5 rounded font-mono text-amber-300">
                   GEMINI_API_KEY
                 </code>{' '}
-                configurada en el servidor.
+                en el servidor.
               </span>
             </div>
           </div>
@@ -696,15 +649,36 @@ export const VoiceAssistantModal: React.FC<Props> = ({
 
         {/* Modal Body */}
         <div className="relative z-10 flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
-          {/* STEP 1: RECORD & TRANSCRIBE */}
+          {/* STEP 1: DICTATE & WRITE */}
           {step === 'record' && (
             <div className="space-y-5">
-              {/* Voice Recording Central Hero */}
+              {/* Voice Dictation Controls Section */}
               <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-b from-[#141c2b] to-[#101622] border border-[#232e44] text-center space-y-4">
+                {/* Compatibility notice if SpeechRecognition is not available */}
+                {!isSpeechSupported && (
+                  <div className="p-3.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs text-left flex items-start gap-2.5">
+                    <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold block">Dictado por voz:</span>
+                      <span>
+                        El dictado no está disponible en este navegador. Puedes usar el micrófono del teclado o escribir el texto.
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Dictation Notice/Error if any */}
+                {dictationNotice && isSpeechSupported && (
+                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs text-left flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                    <span>{dictationNotice}</span>
+                  </div>
+                )}
+
                 <div className="flex flex-col items-center justify-center gap-3">
-                  {/* Huge Record Button with pulsing rings */}
+                  {/* Big Microphone / Stop Button */}
                   <div className="relative flex items-center justify-center">
-                    {isRecording && (
+                    {isListening && (
                       <>
                         <div className="absolute w-28 h-28 rounded-full bg-rose-500/20 animate-ping pointer-events-none" />
                         <div className="absolute w-24 h-24 rounded-full bg-rose-500/30 animate-pulse pointer-events-none" />
@@ -712,15 +686,22 @@ export const VoiceAssistantModal: React.FC<Props> = ({
                     )}
 
                     <button
-                      onClick={isRecording ? () => stopAndCollectAudio() : startRecording}
-                      disabled={isAnalyzing}
-                      className={`relative z-10 w-20 h-20 rounded-full flex flex-col items-center justify-center transition shadow-2xl cursor-pointer active:scale-95 ${
-                        isRecording
+                      onClick={isListening ? stopListening : startListening}
+                      disabled={isAnalyzing || !isSpeechSupported}
+                      className={`relative z-10 w-20 h-20 rounded-full flex flex-col items-center justify-center transition shadow-2xl cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${
+                        isListening
                           ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/50'
                           : 'bg-gradient-to-tr from-violet-600 via-indigo-600 to-emerald-500 hover:from-violet-500 hover:to-emerald-400 text-white shadow-indigo-950/70'
                       }`}
+                      title={
+                        !isSpeechSupported
+                          ? 'Dictado no soportado en este navegador'
+                          : isListening
+                          ? 'Detener dictado'
+                          : 'Iniciar dictado por voz'
+                      }
                     >
-                      {isRecording ? (
+                      {isListening ? (
                         <Square className="w-8 h-8 fill-current" />
                       ) : (
                         <Mic className="w-8 h-8" />
@@ -728,76 +709,56 @@ export const VoiceAssistantModal: React.FC<Props> = ({
                     </button>
                   </div>
 
-                  {/* Status & Timer Indicator */}
+                  {/* Status Indicator */}
                   <div>
-                    {isRecording ? (
-                      <div className="space-y-1">
+                    {isListening ? (
+                      <div className="space-y-1.5">
                         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 text-xs font-bold border border-rose-500/30 animate-pulse">
                           <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" />
-                          <span>Grabando audio ({formatSeconds(recordingSeconds)})</span>
+                          <span>Escuchando dictado en directo ({formatSeconds(listeningSeconds)})</span>
                         </div>
                         <p className="text-[11px] text-zinc-400">
-                          Toca el botón cuadrado rojo para detener, o pulsa "Analizar con Gemini" directamente.
+                          Habla con naturalidad. Toca el botón rojo o «Detener dictado» cuando termines.
                         </p>
-                      </div>
-                    ) : recordedAudioBlob ? (
-                      <div className="space-y-2">
-                        <span className="text-xs font-semibold text-emerald-400 block">
-                          ✓ Audio grabado ({formatSeconds(recordingSeconds)})
-                        </span>
-                        {audioUrl && (
-                          <div className="flex items-center justify-center gap-2">
-                            <audio controls src={audioUrl} className="h-8 max-w-xs" />
-                            <button
-                              onClick={() => {
-                                setRecordedAudioBlob(null);
-                                if (audioUrl) URL.revokeObjectURL(audioUrl);
-                                setAudioUrl(null);
-                              }}
-                              title="Descartar y volver a grabar"
-                              className="p-1.5 rounded-lg bg-[#182130] hover:bg-[#202c3f] text-zinc-400 hover:text-white transition cursor-pointer"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        )}
                       </div>
                     ) : (
                       <div className="space-y-1">
                         <span className="text-xs font-bold text-zinc-200 block">
-                          Pulsa para grabar tu voz
+                          {isSpeechSupported ? 'Pulsa para dictar por voz' : 'Escribe tus tareas abajo'}
                         </span>
                         <p className="text-[11px] text-zinc-400 max-w-sm mx-auto">
-                          Ejemplo: <em>"Para mañana tengo ejercicios del 1 al 8 de Física. El jueves entrego trabajo de Lengua y el martes examen de Matemáticas."</em>
+                          Ejemplo: <em>«Para mañana tengo Física y el martes de la semana que viene tengo examen de Matemáticas»</em>
                         </p>
                       </div>
                     )}
                   </div>
-                </div>
 
-                {/* Mic error message */}
-                {micError && (
-                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs text-left flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                    <span>{micError}</span>
-                  </div>
-                )}
+                  {/* Explicit Stop Recognition Button when listening */}
+                  {isListening && (
+                    <button
+                      onClick={stopListening}
+                      className="px-4 py-1.5 rounded-xl bg-[#1e2738] hover:bg-[#28344b] text-zinc-200 border border-zinc-700 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <Square className="w-3.5 h-3.5 text-rose-400 fill-current" />
+                      <span>Detener dictado</span>
+                    </button>
+                  )}
+                </div>
               </div>
 
-              {/* Editable Transcription / Manual Input Textarea */}
+              {/* Large Text Box for Recognized Text or Manual Typing */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
-                    <span>Transcripción / Texto a analizar</span>
-                    <span className="text-[10px] text-zinc-500 font-normal">
-                      (puedes editarlo o escribirlo libremente)
-                    </span>
+                    <Keyboard className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Texto a analizar (dictado o escrito manualmente)</span>
                   </label>
                   <button
                     onClick={() => {
                       setTranscriptText(
-                        'Para mañana tengo los ejercicios del 1 al 8 de Física. El jueves tengo que entregar el trabajo de Lengua y el martes de la semana que viene tengo examen de Matemáticas de ecuaciones.'
+                        'Para mañana tengo Física y el martes de la semana que viene tengo examen de Matemáticas.'
                       );
+                      setInterimText('');
                     }}
                     className="text-[11px] text-emerald-400 hover:text-emerald-300 underline font-medium cursor-pointer"
                   >
@@ -807,15 +768,25 @@ export const VoiceAssistantModal: React.FC<Props> = ({
 
                 <div className="relative">
                   <textarea
-                    value={transcriptText}
-                    onChange={(e) => setTranscriptText(e.target.value)}
-                    placeholder="Habla por el micrófono o escribe aquí directamente tus tareas y exámenes con fechas..."
-                    rows={4}
-                    className="w-full px-3.5 py-3 rounded-2xl bg-[#141b27] border border-[#232e42] focus:border-indigo-500 text-white text-xs sm:text-sm placeholder:text-zinc-600 focus:outline-none transition resize-none leading-relaxed"
+                    value={
+                      isListening && interimText
+                        ? `${transcriptText ? transcriptText.trim() + ' ' : ''}${interimText}`
+                        : transcriptText
+                    }
+                    onChange={(e) => {
+                      setTranscriptText(e.target.value);
+                      setInterimText('');
+                    }}
+                    placeholder="Escribe o dicta aquí tus deberes y exámenes. Ejemplo: «Para mañana ejercicios del 1 al 8 de Física y el viernes examen de Lengua»..."
+                    rows={5}
+                    className="w-full px-4 py-3 rounded-2xl bg-[#141b27] border border-[#232e42] focus:border-indigo-500 text-white text-xs sm:text-sm placeholder:text-zinc-600 focus:outline-none transition resize-none leading-relaxed"
                   />
-                  {transcriptText && (
+                  {Boolean(transcriptText || interimText) && (
                     <button
-                      onClick={() => setTranscriptText('')}
+                      onClick={() => {
+                        setTranscriptText('');
+                        setInterimText('');
+                      }}
                       className="absolute right-3 top-3 text-zinc-500 hover:text-zinc-300 transition cursor-pointer"
                       title="Borrar texto"
                     >
@@ -823,20 +794,30 @@ export const VoiceAssistantModal: React.FC<Props> = ({
                     </button>
                   )}
                 </div>
+
+                {isListening && interimText && (
+                  <p className="text-[11px] text-emerald-400 italic flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>Transcribiendo en directo: "{interimText}"</span>
+                  </p>
+                )}
               </div>
 
-              {/* General API error */}
+              {/* General API error (with text retained for retry!) */}
               {apiError && (
                 <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-bold block">No se pudo completar el análisis:</span>
+                    <span className="font-bold block">No se pudo procesar con Gemini:</span>
                     <span>{apiError}</span>
+                    <span className="block mt-1 text-[11px] text-rose-400 font-medium">
+                      ✓ Tu texto se ha conservado intacto en el cuadro de arriba para que puedas corregirlo o volver a pulsar «Analizar con Gemini».
+                    </span>
                   </div>
                 </div>
               )}
 
-              {/* Action Button: Analizar con Gemini */}
+              {/* Action Buttons */}
               <div className="pt-2 flex items-center justify-end gap-3">
                 <button
                   type="button"
@@ -848,18 +829,13 @@ export const VoiceAssistantModal: React.FC<Props> = ({
 
                 <button
                   onClick={handleAnalyzeWithGemini}
-                  disabled={isAnalyzing || (!isRecording && !recordedAudioBlob && !transcriptText.trim())}
+                  disabled={isAnalyzing || (!transcriptText.trim() && !interimText.trim())}
                   className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-emerald-600 hover:from-violet-500 hover:to-emerald-500 disabled:opacity-50 text-white font-bold text-xs sm:text-sm transition shadow-lg shadow-indigo-950/60 flex items-center gap-2 cursor-pointer active:scale-95"
                 >
                   {isAnalyzing ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
                       <span>Analizando con Gemini...</span>
-                    </>
-                  ) : isRecording ? (
-                    <>
-                      <Square className="w-4 h-4 text-rose-300 fill-current" />
-                      <span>Detener y Analizar 🎙️</span>
                     </>
                   ) : (
                     <>
@@ -893,190 +869,222 @@ export const VoiceAssistantModal: React.FC<Props> = ({
                     className="px-2.5 py-1.5 rounded-lg bg-[#141a26] hover:bg-[#1b2333] text-zinc-300 border border-zinc-800 text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer"
                   >
                     <RotateCcw className="w-3 h-3 text-zinc-400" />
-                    <span>Volver a grabar / texto</span>
+                    <span>Volver al texto / dictar</span>
                   </button>
                   <button
                     onClick={handleAddManualItem}
                     className="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-semibold transition flex items-center gap-1 cursor-pointer"
                   >
                     <Plus className="w-3 h-3" />
-                    <span>Añadir otro</span>
+                    <span>Añadir registro</span>
                   </button>
                 </div>
               </div>
 
-              {/* Items List */}
+              {/* List of items */}
               <div className="space-y-3">
                 {extractedItems.map((item) => (
                   <div
                     key={item.id}
-                    className="p-3.5 sm:p-4 rounded-2xl bg-[#131926] border border-[#232f44] hover:border-[#2d3c57] transition space-y-3"
+                    className={`p-4 rounded-2xl border transition ${
+                      item.isDuplicate
+                        ? 'bg-amber-500/5 border-amber-500/30'
+                        : item.type === 'examen'
+                        ? 'bg-[#151a28] border-indigo-500/30'
+                        : 'bg-[#121824] border-[#1e2738]'
+                    }`}
                   >
-                    {/* Top Row: Type toggle & Delete */}
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 bg-[#0e131d] p-1 rounded-xl border border-zinc-800">
-                        <button
-                          type="button"
-                          onClick={() => handleUpdateItem(item.id, { type: 'deber' })}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                            item.type === 'deber'
-                              ? 'bg-emerald-600 text-white shadow-sm'
-                              : 'text-zinc-400 hover:text-white'
-                          }`}
-                        >
-                          Deber
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleUpdateItem(item.id, { type: 'examen' })}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                            item.type === 'examen'
-                              ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white shadow-sm'
-                              : 'text-zinc-400 hover:text-white'
-                          }`}
-                        >
-                          Examen
-                        </button>
-                      </div>
-
+                    {/* Item Header */}
+                    <div className="flex items-center justify-between gap-2 mb-3">
                       <div className="flex items-center gap-2">
-                        {item.isDuplicate && (
-                          <span className="text-[11px] font-bold text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/30 flex items-center gap-1">
-                            <AlertTriangle className="w-3 h-3" />
-                            <span>Ya registrado (se omitirá duplicado)</span>
-                          </span>
-                        )}
+                        {/* Type Toggle */}
+                        <div className="flex rounded-lg bg-[#0e131d] p-0.5 border border-zinc-800">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateItem(item.id, { type: 'deber' })}
+                            className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition ${
+                              item.type === 'deber'
+                                ? 'bg-emerald-600 text-white shadow-sm'
+                                : 'text-zinc-400 hover:text-white'
+                            }`}
+                          >
+                            Deber
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateItem(item.id, { type: 'examen' })}
+                            className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition ${
+                              item.type === 'examen'
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'text-zinc-400 hover:text-white'
+                            }`}
+                          >
+                            Examen
+                          </button>
+                        </div>
+
+                        {/* Date description badge */}
                         {item.dateDescription && (
-                          <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 hidden sm:inline-block">
+                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-[#192336] text-emerald-400 border border-emerald-500/20">
                             {item.dateDescription}
                           </span>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteItem(item.id)}
-                          className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
-                          title="Eliminar este registro"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+
+                        {/* Duplicate warning badge */}
+                        {item.isDuplicate && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3 text-amber-400" />
+                            <span>Posible duplicado</span>
+                          </span>
+                        )}
                       </div>
+
+                      <button
+                        onClick={() => handleDeleteItem(item.id)}
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                        title="Eliminar registro"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
 
-                    {/* Middle: Title & Subject */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {/* Item Fields */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      {/* Title */}
                       <div className="sm:col-span-2 space-y-1">
-                        <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
+                        <label className="text-[11px] font-medium text-zinc-400">
                           Título
                         </label>
                         <input
                           type="text"
                           value={item.title}
                           onChange={(e) => handleUpdateItem(item.id, { title: e.target.value })}
-                          placeholder="Ej: Ejercicios del 1 al 8"
-                          className="w-full px-3 py-1.5 rounded-xl bg-[#0e131d] border border-[#20293b] text-white text-xs font-medium focus:border-indigo-500 focus:outline-none"
+                          placeholder="Título de la tarea o examen"
+                          className="w-full px-3 py-2 rounded-xl bg-[#0c111a] border border-[#212c40] text-white text-xs focus:border-indigo-500 focus:outline-none"
                         />
                       </div>
 
+                      {/* Subject */}
                       <div className="space-y-1">
-                        <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
-                          Asignatura
+                        <label className="text-[11px] font-medium text-zinc-400 flex items-center gap-1">
+                          <BookOpen className="w-3 h-3 text-emerald-400" />
+                          <span>Asignatura</span>
                         </label>
-                        <input
-                          type="text"
-                          value={item.subject}
-                          onChange={(e) => handleUpdateItem(item.id, { subject: e.target.value })}
-                          placeholder="Materia (ej: Física)"
-                          className="w-full px-3 py-1.5 rounded-xl bg-[#0e131d] border border-[#20293b] text-white text-xs font-medium focus:border-indigo-500 focus:outline-none"
-                        />
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            value={item.subject}
+                            onChange={(e) => handleUpdateItem(item.id, { subject: e.target.value })}
+                            list={`subjects-list-${item.id}`}
+                            placeholder="Materia (ej: Matemáticas)"
+                            className="w-full px-3 py-2 rounded-xl bg-[#0c111a] border border-[#212c40] text-white text-xs focus:border-indigo-500 focus:outline-none"
+                          />
+                          <datalist id={`subjects-list-${item.id}`}>
+                            {subjects.map((s) => (
+                              <option key={s.id} value={s.name} />
+                            ))}
+                          </datalist>
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Bottom: Date picker & Priority */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
-                      <div className="sm:col-span-2 space-y-1">
-                        <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-emerald-400" />
-                          <span>Fecha y Hora de Entrega / Examen</span>
+                      {/* Date & Time */}
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-medium text-zinc-400 flex items-center gap-1">
+                          <Calendar className="w-3 h-3 text-emerald-400" />
+                          <span>Fecha y hora</span>
                         </label>
                         <input
                           type="datetime-local"
                           value={toLocalInputValue(item.date)}
-                          onChange={(e) =>
-                            handleUpdateItem(item.id, {
-                              date: fromLocalInputValue(e.target.value),
-                            })
-                          }
-                          className="w-full px-3 py-1.5 rounded-xl bg-[#0e131d] border border-[#20293b] text-white text-xs font-mono focus:border-indigo-500 focus:outline-none"
+                          onChange={(e) => handleUpdateItem(item.id, { date: fromLocalInputValue(e.target.value) })}
+                          className="w-full px-3 py-2 rounded-xl bg-[#0c111a] border border-[#212c40] text-white text-xs focus:border-indigo-500 focus:outline-none"
                         />
                       </div>
 
+                      {/* Priority */}
                       <div className="space-y-1">
-                        <label className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
+                        <label className="text-[11px] font-medium text-zinc-400">
                           Prioridad
                         </label>
                         <select
                           value={item.priority}
-                          onChange={(e) =>
-                            handleUpdateItem(item.id, { priority: e.target.value as Priority })
-                          }
-                          className="w-full px-3 py-1.5 rounded-xl bg-[#0e131d] border border-[#20293b] text-white text-xs font-medium focus:border-indigo-500 focus:outline-none"
+                          onChange={(e) => handleUpdateItem(item.id, { priority: e.target.value as Priority })}
+                          className="w-full px-3 py-2 rounded-xl bg-[#0c111a] border border-[#212c40] text-white text-xs focus:border-indigo-500 focus:outline-none"
                         >
                           <option value="alta">Alta</option>
                           <option value="media">Media</option>
                           <option value="baja">Baja</option>
                         </select>
                       </div>
-                    </div>
 
-                    {/* Optional Notes */}
-                    <div className="space-y-1 pt-0.5">
-                      <input
-                        type="text"
-                        value={item.notes || ''}
-                        onChange={(e) => handleUpdateItem(item.id, { notes: e.target.value })}
-                        placeholder="Notas, páginas o temario opcional..."
-                        className="w-full px-3 py-1 rounded-xl bg-[#0e131d]/60 border border-[#1b2333] text-zinc-300 text-[11px] placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none"
-                      />
+                      {/* Notes / Details */}
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-medium text-zinc-400 flex items-center gap-1">
+                          <FileText className="w-3 h-3 text-zinc-400" />
+                          <span>Detalles o temario</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={item.notes || ''}
+                          onChange={(e) => handleUpdateItem(item.id, { notes: e.target.value })}
+                          placeholder="Ej: ejercicios 1 al 8, tema 4..."
+                          className="w-full px-3 py-2 rounded-xl bg-[#0c111a] border border-[#212c40] text-white text-xs focus:border-indigo-500 focus:outline-none"
+                        />
+                      </div>
                     </div>
                   </div>
                 ))}
+
+                {extractedItems.length === 0 && (
+                  <div className="p-8 text-center rounded-2xl bg-[#121824] border border-[#1e2738] space-y-2">
+                    <p className="text-xs text-zinc-400">No hay registros para guardar.</p>
+                    <button
+                      onClick={() => setStep('record')}
+                      className="text-xs text-emerald-400 hover:underline font-semibold"
+                    >
+                      Volver a dictar o escribir
+                    </button>
+                  </div>
+                )}
               </div>
 
-              {/* Error if saving fails */}
-              {apiError && (
-                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                  <span>{apiError}</span>
-                </div>
-              )}
-
-              {/* Review Step Footer Actions */}
+              {/* Review Step Actions */}
               <div className="pt-3 border-t border-[#1c2536] flex items-center justify-between gap-3">
                 <button
                   type="button"
                   onClick={() => setStep('record')}
-                  className="px-4 py-2.5 rounded-xl bg-[#141c28] hover:bg-[#1a2433] text-zinc-300 text-xs font-semibold border border-zinc-800 transition cursor-pointer"
+                  className="px-3.5 py-2 rounded-xl bg-[#141c28] hover:bg-[#1a2433] text-zinc-300 text-xs font-semibold border border-zinc-800 transition cursor-pointer"
                 >
-                  Atrás
+                  Volver al texto
                 </button>
 
-                <button
-                  onClick={handleSaveAll}
-                  disabled={isSaving || extractedItems.length === 0}
-                  className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs sm:text-sm transition shadow-lg shadow-emerald-950/60 flex items-center gap-2 cursor-pointer active:scale-95"
-                >
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Guardando registros...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>Guardar todos ({extractedItems.length})</span>
-                    </>
-                  )}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-3.5 py-2 rounded-xl bg-[#141c28] hover:bg-[#1a2433] text-zinc-400 text-xs font-semibold border border-zinc-800 transition cursor-pointer"
+                  >
+                    Descartar
+                  </button>
+
+                  <button
+                    onClick={handleSaveAll}
+                    disabled={isSaving || extractedItems.length === 0}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs sm:text-sm transition shadow-lg shadow-emerald-950/60 flex items-center gap-2 cursor-pointer active:scale-95"
+                  >
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Guardando registros...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Guardar todos ({extractedItems.length})</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           )}
