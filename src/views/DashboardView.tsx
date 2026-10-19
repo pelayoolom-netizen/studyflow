@@ -1409,12 +1409,15 @@ export const DashboardView: React.FC<Props> = ({
         isOpen={isVoiceModalOpen}
         onClose={() => setIsVoiceModalOpen(false)}
         subjects={subjects}
+        assignments={assignments}
+        exams={exams}
         onSaveAssignment={onSaveAssignment}
         onSaveExam={onSaveExam}
         onSaveSubject={onSaveSubject}
         onSuccessSaved={(summary) => {
+          const skipText = summary.duplicatesSkipped ? ` (${summary.duplicatesSkipped} ya existían)` : '';
           setToastMessage({
-            text: `¡${summary.assignmentsCount} deber${summary.assignmentsCount !== 1 ? 'es' : ''} y ${summary.examsCount} examen${summary.examsCount !== 1 ? 'es' : ''} guardados con IA!`,
+            text: `¡${summary.assignmentsCount} deber${summary.assignmentsCount !== 1 ? 'es' : ''} y ${summary.examsCount} examen${summary.examsCount !== 1 ? 'es' : ''} guardados con IA!${skipText}`,
             type: 'success',
           });
         }}

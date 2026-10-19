@@ -307,6 +307,7 @@ export default function App() {
             <AssignmentsView
               assignments={assignments}
               subjects={subjects}
+              exams={exams}
               onSaveAssignment={handleSaveAssignment}
               onDeleteAssignment={handleDeleteAssignment}
               onToggleAssignment={handleToggleAssignment}

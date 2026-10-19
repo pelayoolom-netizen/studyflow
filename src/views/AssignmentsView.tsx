@@ -22,6 +22,7 @@ import { VoiceAssistantModal } from '../components/VoiceAssistantModal';
 interface Props {
   assignments: Assignment[];
   subjects: Subject[];
+  exams?: Exam[];
   onSaveAssignment: (assignment: Assignment) => Promise<Assignment>;
   onDeleteAssignment: (id: string) => Promise<void>;
   onToggleAssignment: (id: string) => Promise<void>;
@@ -34,6 +35,7 @@ interface Props {
 export const AssignmentsView: React.FC<Props> = ({
   assignments,
   subjects,
+  exams = [],
   onSaveAssignment,
   onDeleteAssignment,
   onToggleAssignment,
@@ -760,6 +762,8 @@ export const AssignmentsView: React.FC<Props> = ({
         isOpen={isVoiceModalOpen}
         onClose={() => setIsVoiceModalOpen(false)}
         subjects={subjects}
+        assignments={assignments}
+        exams={exams}
         onSaveAssignment={onSaveAssignment}
         onSaveExam={onSaveExam || (async () => ({} as any))}
         onSaveSubject={onSaveSubject}

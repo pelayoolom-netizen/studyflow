@@ -135,7 +135,7 @@ app.get('/api/gemini/status', (_req: Request, res: Response) => {
   });
 });
 
-// 6. Gemini Voice / Text Academic Assistant
+// 6. Gemini Voice / Text Academic Assistant with Automatic Model Fallbacks
 app.post('/api/gemini/analyze-voice', async (req: Request, res: Response) => {
   try {
     const { audioBase64, mimeType, text, clientDate, timezone, existingSubjects } = req.body;
@@ -143,18 +143,28 @@ app.post('/api/gemini/analyze-voice', async (req: Request, res: Response) => {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey.trim().length < 10) {
       return res.status(400).json({
-        error: 'No se ha configurado la variable GEMINI_API_KEY en el servidor. Configura tu API Key en la variable de entorno GEMINI_API_KEY para habilitar el análisis con Gemini.',
+        error: 'No se ha configurado la variable GEMINI_API_KEY en el servidor.',
         missingKey: true,
       });
     }
 
-    if (!audioBase64 && (!text || !text.trim())) {
+    const hasAudio = Boolean(audioBase64 && typeof audioBase64 === 'string' && audioBase64.trim().length > 100);
+    const hasText = Boolean(text && typeof text === 'string' && text.trim().length > 0);
+
+    if (!hasAudio && !hasText) {
       return res.status(400).json({
-        error: 'No se recibió audio ni texto para procesar.',
+        error: 'No se recibió audio válido ni texto para procesar.',
       });
     }
 
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
 
     // Temporal context anchoring
     const refDate = clientDate ? new Date(clientDate) : new Date();
@@ -178,140 +188,226 @@ app.post('/api/gemini/analyze-voice', async (req: Request, res: Response) => {
       ? existingSubjects.join(', ')
       : 'Matemáticas, Física, Lengua, Historia, Inglés, Química, Biología, Filosofía';
 
-    const systemInstruction = `Eres el asistente de voz inteligente de StudyFlow, una plataforma académica para estudiantes.
-Tu misión es interpretar lo que dice o escribe el estudiante y estructurarlo con absoluta precisión en registros de "deber" (tareas/entregas) y "examen" (evaluaciones/controles).
+    const systemInstruction = `Eres el asistente académico inteligente de StudyFlow.
+Tu misión es interpretar lo que dice o escribe el estudiante y estructurarlo con absoluta fidelidad en registros de "deber" y "examen".
 
 ANCLAJE TEMPORAL OBLIGATORIO:
-- Fecha de hoy: ${dateFormatted} (${currentDayName}).
+- Fecha de referencia (hoy): ${dateFormatted} (${currentDayName}).
 - Hora actual del estudiante: ${timeFormatted}.
 - Zona horaria de referencia: ${tz}.
 - Año de referencia: ${refDate.getFullYear()}.
-- Asignaturas actuales del alumno: ${subjectsListStr}.
+- Asignaturas registradas del alumno: ${subjectsListStr}.
 
 REGLAS DE CLASIFICACIÓN Y EXTRACCIÓN:
-1. DISTINCIÓN ENTRE DEBER Y EXAMEN:
+1. DISTINCIÓN:
    - "examen", "control", "parcial", "recuperación", "prueba", "evaluación", "test" -> type: "examen"
    - "deberes", "ejercicios", "tarea", "trabajo", "entrega", "proyecto", "redacción", "ficha", "leer" -> type: "deber"
 
 2. CÁLCULO DE FECHAS RELATIVAS (ZONA HORARIA ${tz}):
-   - IMPORTANTE: No uses fechas pasadas. Todo lo asignado se refiere al futuro respecto a ${dateFormatted}.
-   - "mañana": exactamente el día siguiente a ${dateFormatted}. Si es un deber y no dice hora, pon las 18:00 (18:00:00). Si es examen, pon las 09:30 (09:30:00).
+   - No generes fechas en el pasado respecto a ${dateFormatted}.
+   - "mañana": el día siguiente. Si es deber y no especifica hora, usa las 18:00 (18:00:00). Si es examen, las 09:30 (09:30:00).
    - "pasado mañana": dos días después.
    - "el jueves", "el viernes", etc.: el próximo jueves/viernes más cercano hacia adelante.
-   - "el martes de la semana que viene" / "el próximo martes": el martes de la siguiente semana.
-   - Fechas con día de mes (ej: "28 de octubre"): calcula la fecha completa de ese mes y año actual.
-   - Las fechas deben devolverse en formato ISO 8601 estricto (ejemplo: "YYYY-MM-DDTHH:mm:ss").
+   - "el martes de la semana que viene": el martes de la próxima semana.
+   - Siempre devuelve el campo 'date' en formato ISO 8601 completo estricto (ejemplo: "YYYY-MM-DDTHH:mm:ss"). No devuelvas palabras en el campo 'date'.
+   - En el campo 'dateDescription', añade una frase explicativa legible en español (ej: "Mañana a las 18:00", "Jueves 22 de octubre").
 
 3. ASIGNATURAS:
-   - Si el estudiante menciona una materia ("Física", "Lengua", "Matemáticas"), asóciala a esa asignatura. Si coincide con alguna de las existentes (${subjectsListStr}), normalízala a ese nombre exacto.
-   - Si menciona una materia no listada, indícala con su nombre con mayúscula inicial (ej: "Filosofía", "Economía").
-   - Si no nombra materia pero se deduce del contexto (ej: "ejercicios de matrices" -> "Matemáticas"), asígnala razonablemente.
+   - Asocia cada tarea a la asignatura que mencione el estudiante ("Física", "Lengua", "Matemáticas").
+   - Si coincide con alguna de las asignaturas existentes (${subjectsListStr}), normalízala exactamente.
+   - Si no nombra asignatura pero se deduce (ej: "ejercicios de matrices" -> "Matemáticas"), asígnala inteligentemente.
 
 4. PRIORIDAD:
    - Para exámenes: 'alta' por defecto.
-   - Para entregas urgentes o proyectos: 'alta' o 'media'.
+   - Para entregas urgentes o trabajos: 'alta' o 'media'.
    - Para deberes cotidianos: 'media' o 'baja'.
 
 5. TRANSCRIPCIÓN:
-   - En el campo 'transcription', incluye el texto completo fiel de lo que el alumno dijo o proporcionó.`;
+   - En 'transcription', incluye el texto completo de lo que el alumno dijo o escribió.`;
 
     const parts: any[] = [];
 
     // Attach audio inline data if provided
-    if (audioBase64) {
-      let cleanMime = (mimeType || 'audio/webm').split(';')[0].trim();
-      if (!cleanMime) cleanMime = 'audio/webm';
-
+    if (hasAudio) {
+      let cleanMime = (mimeType || 'audio/webm').split(';')[0].trim().toLowerCase();
+      if (!cleanMime || cleanMime === 'audio') cleanMime = 'audio/webm';
+      // Strip potential extra spaces
       parts.push({
         inlineData: {
           mimeType: cleanMime,
-          data: audioBase64,
+          data: audioBase64.replace(/\s/g, ''),
         },
       });
     }
 
-    if (text && text.trim()) {
+    if (hasText) {
       parts.push({
-        text: `Texto proporcionado / transcrito por el alumno: "${text.trim()}"`,
+        text: `Texto proporcionado por el alumno: "${text.trim()}"`,
       });
     }
 
     parts.push({
-      text: `Analiza el audio o texto anterior y extrae todos los deberes y exámenes mencionados. Devuelve la lista estructurada con fechas concretas relativas a hoy (${dateFormatted}, ${currentDayName}).`,
+      text: `Analiza el contenido anterior y extrae todos los deberes y exámenes mencionados. Devuelve la lista estructurada con fechas concretas relativas a hoy (${dateFormatted}, ${currentDayName}).`,
     });
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: {
-        parts,
-      },
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            transcription: {
-              type: Type.STRING,
-              description: 'Transcripción fiel del audio o texto.',
-            },
-            items: {
-              type: Type.ARRAY,
-              description: 'Lista de deberes y exámenes identificados.',
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  type: {
-                    type: Type.STRING,
-                    description: "Tipo: 'deber' o 'examen'",
-                  },
-                  title: {
-                    type: Type.STRING,
-                    description: 'Título descriptivo de la tarea o examen.',
-                  },
-                  subject: {
-                    type: Type.STRING,
-                    description: 'Nombre de la materia o asignatura.',
-                  },
-                  date: {
-                    type: Type.STRING,
-                    description: 'Fecha en formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)',
-                  },
-                  dateDescription: {
-                    type: Type.STRING,
-                    description: 'Explicación legible en español de la fecha (ej: Mañana a las 18:00, Jueves 22 de octubre)',
-                  },
-                  priority: {
-                    type: Type.STRING,
-                    description: "Prioridad: 'alta', 'media' o 'baja'",
-                  },
-                  notes: {
-                    type: Type.STRING,
-                    description: 'Detalles adicionales, temario o indicaciones especiales.',
-                  },
-                },
-                required: ['type', 'title', 'subject', 'date', 'priority'],
+    const responseSchema = {
+      type: Type.OBJECT,
+      properties: {
+        transcription: {
+          type: Type.STRING,
+          description: 'Transcripción fiel del audio o texto expresado por el alumno.',
+        },
+        items: {
+          type: Type.ARRAY,
+          description: 'Lista de deberes y exámenes identificados.',
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              type: {
+                type: Type.STRING,
+                description: "Tipo de registro: estrictamente 'deber' o 'examen'",
+              },
+              title: {
+                type: Type.STRING,
+                description: 'Título claro y concreto de la tarea o examen.',
+              },
+              subject: {
+                type: Type.STRING,
+                description: 'Nombre de la materia o asignatura.',
+              },
+              date: {
+                type: Type.STRING,
+                description: 'Fecha en formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)',
+              },
+              dateDescription: {
+                type: Type.STRING,
+                description: 'Explicación legible en español de la fecha (ej: Mañana a las 18:00)',
+              },
+              priority: {
+                type: Type.STRING,
+                description: "Prioridad: 'alta', 'media' o 'baja'",
+              },
+              notes: {
+                type: Type.STRING,
+                description: 'Detalles adicionales, temario o páginas de ejercicios.',
               },
             },
+            required: ['type', 'title', 'subject', 'date', 'priority'],
           },
-          required: ['transcription', 'items'],
         },
       },
-    });
+      required: ['transcription', 'items'],
+    };
 
-    const outputText = response.text;
-    if (!outputText) {
-      throw new Error('Gemini devolvió una respuesta vacía');
+    // Candidates in prioritized order with automatic fallback in case of high-demand spikes
+    const CANDIDATE_MODELS = [
+      'gemini-3.8-flash',
+      'gemini-3-flash-preview',
+      'gemini-3.1-flash-lite',
+      'gemini-flash-latest',
+    ];
+
+    let lastError: any = null;
+    let successfulResponse: any = null;
+    let modelUsed = '';
+
+    for (const model of CANDIDATE_MODELS) {
+      try {
+        console.log(`[Gemini Assistant] Intentando procesar con modelo: ${model}...`);
+        const response = await ai.models.generateContent({
+          model,
+          contents: {
+            parts,
+          },
+          config: {
+            systemInstruction,
+            responseMimeType: 'application/json',
+            responseSchema,
+          },
+        });
+
+        if (response && response.text) {
+          successfulResponse = response;
+          modelUsed = model;
+          console.log(`[Gemini Assistant] Éxito con modelo: ${model}`);
+          break;
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[Gemini Assistant] Modelo ${model} no disponible (${err.status || err.message}). Evaluando alternativa...`);
+      }
+    }
+
+    if (!successfulResponse || !successfulResponse.text) {
+      throw lastError || new Error('No se pudo procesar la solicitud con ninguno de los modelos de Gemini disponibles.');
+    }
+
+    let outputText = successfulResponse.text.trim();
+    // Clean markdown wrapper if any
+    if (outputText.startsWith('```json')) {
+      outputText = outputText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    } else if (outputText.startsWith('```')) {
+      outputText = outputText.replace(/^```\s*/, '').replace(/\s*```$/, '');
     }
 
     const parsed = JSON.parse(outputText);
+
+    // Normalize items
+    const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
+    const normalizedItems = rawItems.map((item: any, idx: number) => {
+      const rawType = String(item.type || '').toLowerCase();
+      const isExam =
+        rawType.includes('exam') ||
+        rawType.includes('control') ||
+        rawType.includes('parcial') ||
+        rawType.includes('test') ||
+        rawType.includes('prueba') ||
+        rawType.includes('evalu');
+
+      const type: 'deber' | 'examen' = isExam ? 'examen' : 'deber';
+
+      let cleanPriority = String(item.priority || '').toLowerCase();
+      if (!['alta', 'media', 'baja'].includes(cleanPriority)) {
+        cleanPriority = isExam ? 'alta' : 'media';
+      }
+
+      // Validate date
+      let parsedDate = item.date;
+      const testD = new Date(parsedDate);
+      if (!parsedDate || isNaN(testD.getTime())) {
+        // Fallback relative date
+        const fallback = new Date(refDate);
+        fallback.setDate(fallback.getDate() + 1);
+        if (isExam) {
+          fallback.setHours(9, 30, 0, 0);
+        } else {
+          fallback.setHours(18, 0, 0, 0);
+        }
+        parsedDate = fallback.toISOString();
+      } else {
+        parsedDate = testD.toISOString();
+      }
+
+      return {
+        id: `gemini-${Date.now()}-${idx}`,
+        type,
+        title: item.title?.trim() || (isExam ? 'Examen' : 'Tarea'),
+        subject: item.subject?.trim() || 'General',
+        date: parsedDate,
+        dateDescription: item.dateDescription || undefined,
+        priority: cleanPriority,
+        notes: item.notes?.trim() || '',
+      };
+    });
+
     return res.json({
       success: true,
+      modelUsed,
       transcription: parsed.transcription || text || '',
-      items: parsed.items || [],
+      items: normalizedItems,
     });
   } catch (error: any) {
-    console.error('[Gemini Voice Assistant] Error:', error);
+    console.error('[Gemini Voice Assistant] Error general:', error);
     return res.status(500).json({
       error: error.message || 'Error al procesar la petición con Gemini',
     });

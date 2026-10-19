@@ -15,9 +15,9 @@ import {
   Trash2,
   Plus,
   ArrowRight,
-  HelpCircle,
   Check,
-  Send,
+  FileText,
+  AlertTriangle,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Assignment, Exam, Subject, Priority } from '../types';
@@ -31,16 +31,19 @@ export interface ExtractedVoiceItem {
   dateDescription?: string;
   priority: Priority;
   notes?: string;
+  isDuplicate?: boolean;
 }
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   subjects: Subject[];
+  assignments?: Assignment[];
+  exams?: Exam[];
   onSaveAssignment: (assignment: Assignment) => Promise<Assignment>;
   onSaveExam: (exam: Exam) => Promise<Exam>;
   onSaveSubject?: (subject: Subject) => Promise<Subject>;
-  onSuccessSaved?: (summary: { assignmentsCount: number; examsCount: number }) => void;
+  onSuccessSaved?: (summary: { assignmentsCount: number; examsCount: number; duplicatesSkipped?: number }) => void;
 }
 
 const PRESET_COLORS = [
@@ -53,10 +56,20 @@ const PRESET_COLORS = [
   '#06b6d4', // cyan
 ];
 
+// Helper to normalize strings for comparison (accents, lowercase, whitespace)
+const normalizeStr = (str: string) =>
+  (str || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
 export const VoiceAssistantModal: React.FC<Props> = ({
   isOpen,
   onClose,
   subjects,
+  assignments = [],
+  exams = [],
   onSaveAssignment,
   onSaveExam,
   onSaveSubject,
@@ -72,7 +85,6 @@ export const VoiceAssistantModal: React.FC<Props> = ({
 
   // Transcription & Prompt Text
   const [transcriptText, setTranscriptText] = useState('');
-  const [isManualInputMode, setIsManualInputMode] = useState(false);
 
   // Gemini Analysis State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -104,7 +116,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
           }
         })
         .catch(() => {
-          // If network error, allow trying
+          // If status fails, still allow user to attempt
         });
     } else {
       // Reset state on close
@@ -159,7 +171,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
     audioChunksRef.current = [];
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setMicError('Tu navegador no soporta captura de audio mediante getUserMedia. Puedes usar el modo de escritura manual abajo.');
+      setMicError('Tu navegador no soporta captura de audio mediante getUserMedia. Puedes escribir manualmente abajo.');
       return;
     }
 
@@ -186,7 +198,8 @@ export const VoiceAssistantModal: React.FC<Props> = ({
         }
       }
 
-      setAudioMimeType(supportedMime || 'audio/webm');
+      const activeMime = supportedMime || 'audio/webm';
+      setAudioMimeType(activeMime);
 
       const options = supportedMime ? { mimeType: supportedMime } : undefined;
       const mediaRecorder = new MediaRecorder(stream, options);
@@ -199,20 +212,21 @@ export const VoiceAssistantModal: React.FC<Props> = ({
       };
 
       mediaRecorder.onstop = () => {
-        const mime = supportedMime || 'audio/webm';
-        const blob = new Blob(audioChunksRef.current, { type: mime });
-        setRecordedAudioBlob(blob);
-        const url = URL.createObjectURL(blob);
-        setAudioUrl(url);
+        const blob = new Blob(audioChunksRef.current, { type: activeMime });
+        if (blob.size > 0) {
+          setRecordedAudioBlob(blob);
+          const url = URL.createObjectURL(blob);
+          setAudioUrl(url);
+        }
 
-        // Stop mic hardware tracks
+        // Release hardware mic tracks
         if (streamRef.current) {
           streamRef.current.getTracks().forEach((track) => track.stop());
           streamRef.current = null;
         }
       };
 
-      // Start live speech recognition if supported in browser for instantaneous feedback
+      // Optional real-time speech recognition for instant visual feedback on Chromium browsers
       const SpeechRecognition =
         (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (SpeechRecognition) {
@@ -233,17 +247,17 @@ export const VoiceAssistantModal: React.FC<Props> = ({
           };
 
           recognition.onerror = () => {
-            // SpeechRecognition is optional enhancement; MediaRecorder audio is what goes to Gemini
+            // SpeechRecognition is purely optional
           };
 
           recognition.start();
           speechRecognitionRef.current = recognition;
-        } catch (e) {
-          console.warn('SpeechRecognition could not start:', e);
+        } catch {
+          // ignore
         }
       }
 
-      mediaRecorder.start(250); // Slice into chunks every 250ms
+      mediaRecorder.start(250); // Slice into 250ms chunks
       setIsRecording(true);
       setRecordingSeconds(0);
 
@@ -263,24 +277,43 @@ export const VoiceAssistantModal: React.FC<Props> = ({
     }
   };
 
-  // Stop Recording
-  const stopRecording = () => {
-    if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-      timerIntervalRef.current = null;
-    }
-    if (speechRecognitionRef.current) {
-      try {
-        speechRecognitionRef.current.stop();
-      } catch {
-        // ignore
+  // Helper to safely stop the recorder and await the finished Blob
+  const stopAndCollectAudio = (): Promise<{ blob: Blob | null; mime: string }> => {
+    return new Promise((resolve) => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
       }
-      speechRecognitionRef.current = null;
-    }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop();
-    }
-    setIsRecording(false);
+      if (speechRecognitionRef.current) {
+        try {
+          speechRecognitionRef.current.stop();
+        } catch {}
+        speechRecognitionRef.current = null;
+      }
+
+      const mr = mediaRecorderRef.current;
+      if (mr && mr.state !== 'inactive') {
+        mr.onstop = () => {
+          const mime = audioMimeType || mr.mimeType || 'audio/webm';
+          const blob = new Blob(audioChunksRef.current, { type: mime });
+          if (blob.size > 0) {
+            setRecordedAudioBlob(blob);
+            const url = URL.createObjectURL(blob);
+            setAudioUrl(url);
+          }
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => track.stop());
+            streamRef.current = null;
+          }
+          setIsRecording(false);
+          resolve({ blob: blob.size > 0 ? blob : null, mime });
+        };
+        mr.stop();
+      } else {
+        setIsRecording(false);
+        resolve({ blob: recordedAudioBlob, mime: audioMimeType });
+      }
+    });
   };
 
   // Convert Blob to Base64
@@ -289,7 +322,6 @@ export const VoiceAssistantModal: React.FC<Props> = ({
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64data = reader.result as string;
-        // Strip data:audio/*;base64, prefix
         const base64Content = base64data.includes(',')
           ? base64data.split(',')[1]
           : base64data;
@@ -300,15 +332,45 @@ export const VoiceAssistantModal: React.FC<Props> = ({
     });
   };
 
+  // Check if an item already exists in current assignments or exams
+  const checkIfDuplicate = (item: { type: 'deber' | 'examen'; title: string; date: string }) => {
+    const itemNormTitle = normalizeStr(item.title);
+    const itemDateDay = item.date ? item.date.slice(0, 10) : '';
+
+    if (item.type === 'deber') {
+      return assignments.some((a) => {
+        const aNorm = normalizeStr(a.title);
+        const aDay = a.due_date ? a.due_date.slice(0, 10) : '';
+        return aNorm === itemNormTitle && aDay === itemDateDay;
+      });
+    } else {
+      return exams.some((e) => {
+        const eNorm = normalizeStr(e.name);
+        const eDay = e.exam_date ? e.exam_date.slice(0, 10) : '';
+        return eNorm === itemNormTitle && eDay === itemDateDay;
+      });
+    }
+  };
+
   // Analyze with Gemini
   const handleAnalyzeWithGemini = async () => {
     setApiError(null);
 
-    const hasAudio = Boolean(recordedAudioBlob && recordedAudioBlob.size > 0);
+    // Stop recorder if actively recording and get the resulting Blob
+    let audioBlobToUse: Blob | null = recordedAudioBlob;
+    let mimeToUse = audioMimeType;
+
+    if (isRecording || (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording')) {
+      const result = await stopAndCollectAudio();
+      audioBlobToUse = result.blob;
+      mimeToUse = result.mime;
+    }
+
+    const hasAudio = Boolean(audioBlobToUse && audioBlobToUse.size > 200);
     const hasText = Boolean(transcriptText.trim());
 
     if (!hasAudio && !hasText) {
-      setApiError('Graba un mensaje de voz o escribe lo que tienes que hacer en el campo de texto.');
+      setApiError('Graba un mensaje de voz o escribe lo que tienes que hacer en el campo de texto antes de analizar.');
       return;
     }
 
@@ -316,8 +378,8 @@ export const VoiceAssistantModal: React.FC<Props> = ({
 
     try {
       let audioBase64 = '';
-      if (hasAudio && recordedAudioBlob) {
-        audioBase64 = await blobToBase64(recordedAudioBlob);
+      if (hasAudio && audioBlobToUse) {
+        audioBase64 = await blobToBase64(audioBlobToUse);
       }
 
       const clientDate = new Date().toISOString();
@@ -331,7 +393,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
         },
         body: JSON.stringify({
           audioBase64: audioBase64 || undefined,
-          mimeType: audioMimeType,
+          mimeType: mimeToUse,
           text: transcriptText.trim() || undefined,
           clientDate,
           timezone,
@@ -353,12 +415,12 @@ export const VoiceAssistantModal: React.FC<Props> = ({
       }
 
       if (!data.items || data.items.length === 0) {
-        setApiError('Gemini no detectó ningún deber ni examen en el mensaje. Intenta ser más explícito (ej: "Para mañana ejercicios de Matemáticas y el viernes examen de Historia").');
+        setApiError('Gemini no detectó ningún deber ni examen específico. Intenta decir la asignatura y la fecha con mayor claridad (ej: "Para mañana ejercicios de Matemáticas y el viernes examen de Historia").');
         setIsAnalyzing(false);
         return;
       }
 
-      // Convert server items to editable voice items
+      // Convert server items to editable voice items with duplicate detection
       const parsedItems: ExtractedVoiceItem[] = data.items.map((item: any, idx: number) => {
         let validDate = item.date;
         try {
@@ -366,18 +428,24 @@ export const VoiceAssistantModal: React.FC<Props> = ({
           if (isNaN(testD.getTime())) {
             const fallback = new Date();
             fallback.setDate(fallback.getDate() + 1);
-            fallback.setHours(18, 0, 0, 0);
+            fallback.setHours(item.type === 'examen' ? 9 : 18, 30, 0, 0);
             validDate = fallback.toISOString();
           }
         } catch {
           const fallback = new Date();
           fallback.setDate(fallback.getDate() + 1);
-          fallback.setHours(18, 0, 0, 0);
+          fallback.setHours(item.type === 'examen' ? 9 : 18, 30, 0, 0);
           validDate = fallback.toISOString();
         }
 
+        const isDup = checkIfDuplicate({
+          type: item.type === 'examen' ? 'examen' : 'deber',
+          title: item.title || '',
+          date: validDate,
+        });
+
         return {
-          id: 'v-item-' + Date.now() + '-' + idx,
+          id: `voice-item-${Date.now()}-${idx}`,
           type: item.type === 'examen' ? 'examen' : 'deber',
           title: item.title || 'Tarea sin título',
           subject: item.subject || 'General',
@@ -385,6 +453,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
           dateDescription: item.dateDescription,
           priority: (['alta', 'media', 'baja'].includes(item.priority) ? item.priority : 'media') as Priority,
           notes: item.notes || '',
+          isDuplicate: isDup,
         };
       });
 
@@ -401,7 +470,12 @@ export const VoiceAssistantModal: React.FC<Props> = ({
   // Modify Extracted Item
   const handleUpdateItem = (id: string, updates: Partial<ExtractedVoiceItem>) => {
     setExtractedItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, ...updates } : item))
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        const updated = { ...item, ...updates };
+        updated.isDuplicate = checkIfDuplicate(updated);
+        return updated;
+      })
     );
   };
 
@@ -416,7 +490,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(18, 0, 0, 0);
     const newItem: ExtractedVoiceItem = {
-      id: 'v-item-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      id: `manual-item-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       type: 'deber',
       title: '',
       subject: subjects[0]?.name || 'General',
@@ -424,6 +498,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
       dateDescription: 'Mañana a las 18:00',
       priority: 'media',
       notes: '',
+      isDuplicate: false,
     };
     setExtractedItems((prev) => [...prev, newItem]);
   };
@@ -437,34 +512,50 @@ export const VoiceAssistantModal: React.FC<Props> = ({
 
     let createdAssignments = 0;
     let createdExams = 0;
+    let duplicatesSkipped = 0;
 
     try {
+      // Dynamic subjects map to avoid re-creating the same subject in one batch
+      const subjectCache = new Map<string, Subject>();
+      subjects.forEach((s) => {
+        subjectCache.set(normalizeStr(s.name), s);
+      });
+
       for (const item of extractedItems) {
         if (!item.title.trim()) continue;
 
+        const normSubjectName = normalizeStr(item.subject);
+
         // 1. Resolve or Create Subject
-        let matchedSubject = subjects.find(
-          (s) => s.name.trim().toLowerCase() === item.subject.trim().toLowerCase()
-        );
+        let matchedSubject = subjectCache.get(normSubjectName);
 
         if (!matchedSubject && onSaveSubject) {
           const randomColor = PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)];
           const newSub: Subject = {
-            id: 'sub-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+            id: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             name: item.subject.trim() || 'General',
             color: randomColor,
             weekly_goal_minutes: 120,
             created_at: new Date().toISOString(),
           };
           matchedSubject = await onSaveSubject(newSub);
+          subjectCache.set(normSubjectName, matchedSubject);
         }
 
         const subjectId = matchedSubject ? matchedSubject.id : subjects[0]?.id || null;
 
-        // 2. Save Assignment or Exam
+        // 2. Duplicate Check Against Database
+        const isDup = checkIfDuplicate(item);
+        if (isDup) {
+          duplicatesSkipped++;
+          // Skip creating a redundant identical item
+          continue;
+        }
+
+        // 3. Save Assignment or Exam
         if (item.type === 'deber') {
           const newAssignment: Assignment = {
-            id: 'asg-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+            id: `asg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             title: item.title.trim(),
             description: item.notes?.trim() || undefined,
             subject_id: subjectId,
@@ -480,7 +571,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
           createdAssignments++;
         } else {
           const newExam: Exam = {
-            id: 'ex-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+            id: `ex-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             name: item.title.trim(),
             subject_id: subjectId,
             exam_date: new Date(item.date).toISOString(),
@@ -498,14 +589,18 @@ export const VoiceAssistantModal: React.FC<Props> = ({
 
       // Celebratory Confetti
       confetti({
-        particleCount: 65,
-        spread: 80,
+        particleCount: 70,
+        spread: 85,
         origin: { y: 0.6 },
         colors: ['#8b5cf6', '#10b981', '#38bdf8', '#fbbf24'],
       });
 
       if (onSuccessSaved) {
-        onSuccessSaved({ assignmentsCount: createdAssignments, examsCount: createdExams });
+        onSuccessSaved({
+          assignmentsCount: createdAssignments,
+          examsCount: createdExams,
+          duplicatesSkipped,
+        });
       }
 
       onClose();
@@ -565,7 +660,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
                   Añadir con IA 🎙️
                 </h2>
                 <span className="px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 text-[10px] font-bold border border-violet-500/30">
-                  Gemini 3.8 Flash
+                  Gemini Flash
                 </span>
               </div>
               <p className="text-xs text-zinc-400">
@@ -589,11 +684,11 @@ export const VoiceAssistantModal: React.FC<Props> = ({
             <div>
               <span className="font-bold block">Configuración de Gemini Requerida:</span>
               <span>
-                Para analizar voz de forma remota se necesita la variable{' '}
+                Para analizar voz se necesita la variable{' '}
                 <code className="bg-amber-950/60 px-1 py-0.5 rounded font-mono text-amber-300">
                   GEMINI_API_KEY
                 </code>{' '}
-                en el archivo <code className="font-mono">.env</code> del servidor. Puedes escribir el texto manualmente y pulsar "Analizar con Gemini" en cuanto la clave esté vinculada.
+                configurada en el servidor.
               </span>
             </div>
           </div>
@@ -617,7 +712,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
                     )}
 
                     <button
-                      onClick={isRecording ? stopRecording : startRecording}
+                      onClick={isRecording ? () => stopAndCollectAudio() : startRecording}
                       disabled={isAnalyzing}
                       className={`relative z-10 w-20 h-20 rounded-full flex flex-col items-center justify-center transition shadow-2xl cursor-pointer active:scale-95 ${
                         isRecording
@@ -642,7 +737,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
                           <span>Grabando audio ({formatSeconds(recordingSeconds)})</span>
                         </div>
                         <p className="text-[11px] text-zinc-400">
-                          Toca el botón cuadrado rojo para detener la grabación.
+                          Toca el botón cuadrado rojo para detener, o pulsa "Analizar con Gemini" directamente.
                         </p>
                       </div>
                     ) : recordedAudioBlob ? (
@@ -660,7 +755,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
                                 setAudioUrl(null);
                               }}
                               title="Descartar y volver a grabar"
-                              className="p-1.5 rounded-lg bg-[#182130] hover:bg-[#202c3f] text-zinc-400 hover:text-white transition"
+                              className="p-1.5 rounded-lg bg-[#182130] hover:bg-[#202c3f] text-zinc-400 hover:text-white transition cursor-pointer"
                             >
                               <RotateCcw className="w-3.5 h-3.5" />
                             </button>
@@ -673,7 +768,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
                           Pulsa para grabar tu voz
                         </span>
                         <p className="text-[11px] text-zinc-400 max-w-sm mx-auto">
-                          Ejemplo: <em>"Para mañana tengo ejercicios 1 al 8 de Física. El jueves entrego Lengua y el martes examen de Matemáticas."</em>
+                          Ejemplo: <em>"Para mañana tengo ejercicios del 1 al 8 de Física. El jueves entrego trabajo de Lengua y el martes examen de Matemáticas."</em>
                         </p>
                       </div>
                     )}
@@ -695,7 +790,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
                   <label className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
                     <span>Transcripción / Texto a analizar</span>
                     <span className="text-[10px] text-zinc-500 font-normal">
-                      (editable en cualquier momento)
+                      (puedes editarlo o escribirlo libremente)
                     </span>
                   </label>
                   <button
@@ -721,7 +816,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
                   {transcriptText && (
                     <button
                       onClick={() => setTranscriptText('')}
-                      className="absolute right-3 top-3 text-zinc-500 hover:text-zinc-300 transition"
+                      className="absolute right-3 top-3 text-zinc-500 hover:text-zinc-300 transition cursor-pointer"
                       title="Borrar texto"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -753,13 +848,18 @@ export const VoiceAssistantModal: React.FC<Props> = ({
 
                 <button
                   onClick={handleAnalyzeWithGemini}
-                  disabled={isAnalyzing || isRecording || (!recordedAudioBlob && !transcriptText.trim())}
+                  disabled={isAnalyzing || (!isRecording && !recordedAudioBlob && !transcriptText.trim())}
                   className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-emerald-600 hover:from-violet-500 hover:to-emerald-500 disabled:opacity-50 text-white font-bold text-xs sm:text-sm transition shadow-lg shadow-indigo-950/60 flex items-center gap-2 cursor-pointer active:scale-95"
                 >
                   {isAnalyzing ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
                       <span>Analizando con Gemini...</span>
+                    </>
+                  ) : isRecording ? (
+                    <>
+                      <Square className="w-4 h-4 text-rose-300 fill-current" />
+                      <span>Detener y Analizar 🎙️</span>
                     </>
                   ) : (
                     <>
@@ -807,7 +907,7 @@ export const VoiceAssistantModal: React.FC<Props> = ({
 
               {/* Items List */}
               <div className="space-y-3">
-                {extractedItems.map((item, idx) => (
+                {extractedItems.map((item) => (
                   <div
                     key={item.id}
                     className="p-3.5 sm:p-4 rounded-2xl bg-[#131926] border border-[#232f44] hover:border-[#2d3c57] transition space-y-3"
@@ -840,6 +940,12 @@ export const VoiceAssistantModal: React.FC<Props> = ({
                       </div>
 
                       <div className="flex items-center gap-2">
+                        {item.isDuplicate && (
+                          <span className="text-[11px] font-bold text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/30 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" />
+                            <span>Ya registrado (se omitirá duplicado)</span>
+                          </span>
+                        )}
                         {item.dateDescription && (
                           <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 hidden sm:inline-block">
                             {item.dateDescription}
