@@ -13,9 +13,11 @@ import {
   History,
   X,
   Play,
+  Sparkles,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { Assignment, Priority, AssignmentStatus, Subject } from '../types';
+import { Assignment, Priority, AssignmentStatus, Subject, Exam } from '../types';
+import { VoiceAssistantModal } from '../components/VoiceAssistantModal';
 
 interface Props {
   assignments: Assignment[];
@@ -26,6 +28,7 @@ interface Props {
   onStartTimer: (subjectId?: string, assignmentId?: string) => void;
   openCreateModalDirectly?: boolean;
   onSaveSubject?: (subject: Subject) => Promise<Subject>;
+  onSaveExam?: (exam: Exam) => Promise<Exam>;
 }
 
 export const AssignmentsView: React.FC<Props> = ({
@@ -36,12 +39,14 @@ export const AssignmentsView: React.FC<Props> = ({
   onToggleAssignment,
   onStartTimer,
   onSaveSubject,
+  onSaveExam,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSubject, setSelectedSubject] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('active'); // 'all', 'active', 'pendiente', 'en_progreso', 'completado', 'atrasadas'
   const [selectedPriority, setSelectedPriority] = useState<string>('all');
   const [showHistory, setShowHistory] = useState(false);
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
 
   // Edit / Create modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -211,7 +216,14 @@ export const AssignmentsView: React.FC<Props> = ({
             Control integral de tareas, boletos de ejercicios y entregas con estimación de tiempo.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setIsVoiceModalOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-emerald-600 hover:from-violet-500 hover:to-emerald-500 text-white font-bold text-xs transition shadow-lg shadow-indigo-950/60 flex items-center gap-2 cursor-pointer border border-indigo-400/40"
+          >
+            <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+            <span>Añadir con IA 🎙️</span>
+          </button>
           <button
             onClick={() => setShowHistory(!showHistory)}
             className={`px-3 py-2 rounded-xl text-xs font-semibold border transition flex items-center gap-2 cursor-pointer ${
@@ -742,6 +754,16 @@ export const AssignmentsView: React.FC<Props> = ({
           </div>
         </div>
       )}
+
+      {/* Voice Assistant Modal */}
+      <VoiceAssistantModal
+        isOpen={isVoiceModalOpen}
+        onClose={() => setIsVoiceModalOpen(false)}
+        subjects={subjects}
+        onSaveAssignment={onSaveAssignment}
+        onSaveExam={onSaveExam || (async () => ({} as any))}
+        onSaveSubject={onSaveSubject}
+      />
     </div>
   );
 };

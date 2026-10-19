@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Assignment, Exam, Subject, ActiveTab, StudySession, Priority, AssignmentStatus } from '../types';
+import { VoiceAssistantModal } from '../components/VoiceAssistantModal';
 
 interface Props {
   userName?: string;
@@ -117,11 +118,12 @@ export const DashboardView: React.FC<Props> = ({
     }
   }, [toastMessage]);
 
-  // Modal states: Create Task, Edit Task, Create Exam, Delete confirmation
+  // Modal states: Create Task, Edit Task, Create Exam, Delete confirmation, Voice Assistant
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Assignment | null>(null);
   const [isExamModalOpen, setIsExamModalOpen] = useState(false);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
 
   // Inline Subject Creator state (inside Task/Exam modal)
   const [showInlineSubjectCreator, setShowInlineSubjectCreator] = useState(false);
@@ -479,8 +481,15 @@ export const DashboardView: React.FC<Props> = ({
             </p>
           </div>
 
-          {/* 3 Quick Actions */}
+          {/* Quick Actions */}
           <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={() => setIsVoiceModalOpen(true)}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-emerald-600 hover:from-violet-500 hover:to-emerald-500 text-white font-bold text-xs transition shadow-lg shadow-indigo-950/70 flex items-center gap-2 cursor-pointer active:scale-95 border border-indigo-400/40 ring-1 ring-violet-500/30"
+            >
+              <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+              <span>Añadir con IA 🎙️</span>
+            </button>
             <button
               onClick={handleOpenCreateTask}
               className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition shadow-lg shadow-emerald-950/60 flex items-center gap-2 cursor-pointer active:scale-95"
@@ -1394,6 +1403,22 @@ export const DashboardView: React.FC<Props> = ({
           </div>
         </div>
       )}
+
+      {/* Voice Assistant AI Modal */}
+      <VoiceAssistantModal
+        isOpen={isVoiceModalOpen}
+        onClose={() => setIsVoiceModalOpen(false)}
+        subjects={subjects}
+        onSaveAssignment={onSaveAssignment}
+        onSaveExam={onSaveExam}
+        onSaveSubject={onSaveSubject}
+        onSuccessSaved={(summary) => {
+          setToastMessage({
+            text: `¡${summary.assignmentsCount} deber${summary.assignmentsCount !== 1 ? 'es' : ''} y ${summary.examsCount} examen${summary.examsCount !== 1 ? 'es' : ''} guardados con IA!`,
+            type: 'success',
+          });
+        }}
+      />
     </div>
   );
 };

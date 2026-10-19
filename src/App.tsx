@@ -312,6 +312,7 @@ export default function App() {
               onToggleAssignment={handleToggleAssignment}
               onStartTimer={handleStartTimer}
               onSaveSubject={handleSaveSubject}
+              onSaveExam={handleSaveExam}
             />
           )}
 
