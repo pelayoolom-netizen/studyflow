@@ -23,6 +23,7 @@ interface Props {
   onDeleteExam: (id: string) => Promise<void>;
   onStartTimer: (subjectId?: string) => void;
   openCreateModalDirectly?: boolean;
+  onSaveSubject?: (subject: Subject) => Promise<Subject>;
 }
 
 export const ExamsView: React.FC<Props> = ({
@@ -31,6 +32,7 @@ export const ExamsView: React.FC<Props> = ({
   onSaveExam,
   onDeleteExam,
   onStartTimer,
+  onSaveSubject,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSubject, setSelectedSubject] = useState<string>('all');
@@ -39,6 +41,11 @@ export const ExamsView: React.FC<Props> = ({
   // Modal create/edit
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
+
+  // Inline subject creator
+  const [showInlineSubjectCreator, setShowInlineSubjectCreator] = useState(false);
+  const [newSubjectName, setNewSubjectName] = useState('');
+  const [newSubjectColor, setNewSubjectColor] = useState('#10b981');
 
   // Form states
   const [name, setName] = useState('');
@@ -531,21 +538,80 @@ export const ExamsView: React.FC<Props> = ({
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-zinc-300 mb-1">
-                  Asignatura (opcional)
-                </label>
-                <select
-                  value={subjectId}
-                  onChange={(e) => setSubjectId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-[#161c28] border border-zinc-700 text-xs text-white focus:outline-hidden focus:border-emerald-500"
-                >
-                  <option value="">Sin asignatura asignada</option>
-                  {subjects.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-semibold text-zinc-300">
+                    Asignatura
+                  </label>
+                  {onSaveSubject && (
+                    <button
+                      type="button"
+                      onClick={() => setShowInlineSubjectCreator(!showInlineSubjectCreator)}
+                      className="text-xs font-bold text-emerald-400 hover:underline cursor-pointer"
+                    >
+                      {showInlineSubjectCreator ? 'Cancelar' : '+ Crear asignatura'}
+                    </button>
+                  )}
+                </div>
+
+                {showInlineSubjectCreator && onSaveSubject ? (
+                  <div className="p-3 rounded-xl bg-[#141b27] border border-emerald-500/30 space-y-2.5 mb-2">
+                    <input
+                      type="text"
+                      placeholder="Nombre de la nueva asignatura..."
+                      value={newSubjectName}
+                      onChange={(e) => setNewSubjectName(e.target.value)}
+                      className="w-full bg-[#1c2433] border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-hidden focus:border-emerald-500"
+                    />
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-zinc-400">Color:</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {['#10b981', '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f59e0b'].map((color) => (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => setNewSubjectColor(color)}
+                            className={`w-4 h-4 rounded-full transition-transform cursor-pointer ${
+                              newSubjectColor === color ? 'scale-125 ring-2 ring-white' : ''
+                            }`}
+                            style={{ backgroundColor: color }}
+                          />
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!newSubjectName.trim()) return;
+                          const saved = await onSaveSubject({
+                            id: 'sub-' + Date.now(),
+                            name: newSubjectName.trim(),
+                            color: newSubjectColor,
+                            weekly_goal_minutes: 120,
+                            created_at: new Date().toISOString(),
+                          });
+                          setSubjectId(saved.id);
+                          setNewSubjectName('');
+                          setShowInlineSubjectCreator(false);
+                        }}
+                        className="ml-auto px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs cursor-pointer"
+                      >
+                        Guardar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <select
+                    value={subjectId}
+                    onChange={(e) => setSubjectId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-[#161c28] border border-zinc-700 text-xs text-white focus:outline-hidden focus:border-emerald-500"
+                  >
+                    <option value="">Sin asignatura asignada</option>
+                    {subjects.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

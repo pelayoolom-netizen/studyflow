@@ -93,7 +93,7 @@ export const Header: React.FC<Props> = ({
         {/* Supabase User Account Button */}
         <button
           onClick={onOpenAuth}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#141a26] hover:bg-[#1b2333] border border-[#222c3d] text-xs font-medium text-zinc-200 transition cursor-pointer"
+          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-[#141a26] hover:bg-[#1b2333] border border-[#222c3d] text-xs font-medium text-zinc-200 transition cursor-pointer"
         >
           {userEmail ? (
             <>
@@ -103,12 +103,12 @@ export const Header: React.FC<Props> = ({
               <span className="hidden md:inline max-w-[120px] truncate text-zinc-300">
                 {userEmail.split('@')[0]}
               </span>
-              <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <UserCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             </>
           ) : (
             <>
-              <LogIn className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Cuenta en la Nube</span>
+              <LogIn className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span className="hidden sm:inline">Nube</span>
             </>
           )}
         </button>

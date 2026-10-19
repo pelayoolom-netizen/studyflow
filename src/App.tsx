@@ -22,6 +22,7 @@ import {
 import { dataService, SyncState } from './lib/storage';
 import { getSupabaseClient } from './lib/supabase';
 import { registerServiceWorker } from './lib/pushNotifications';
+import { startReminderEngine } from './lib/reminderScheduler';
 import { WifiOff } from 'lucide-react';
 
 export default function App() {
@@ -81,6 +82,16 @@ export default function App() {
       setSyncState(state);
     });
   }, []);
+
+  // Automated daily reminder scheduler (monitors time, respects timezone, sends real tasks/exams)
+  useEffect(() => {
+    const cleanup = startReminderEngine(
+      () => profile,
+      () => assignments,
+      () => exams
+    );
+    return cleanup;
+  }, [profile, assignments, exams]);
 
   // Initial Data Load
   const loadAllData = useCallback(async () => {
@@ -277,9 +288,14 @@ export default function App() {
               assignments={assignments}
               exams={exams}
               subjects={subjects}
+              studySessions={studySessions}
               minutesStudiedToday={minutesStudiedToday}
               dailyGoalMinutes={profile.daily_study_goal_minutes || 120}
               onToggleAssignment={handleToggleAssignment}
+              onSaveAssignment={handleSaveAssignment}
+              onDeleteAssignment={handleDeleteAssignment}
+              onSaveExam={handleSaveExam}
+              onSaveSubject={handleSaveSubject}
               onOpenNewAssignment={() => setActiveTab('assignments')}
               onOpenNewExam={() => setActiveTab('exams')}
               onStartTimer={handleStartTimer}
@@ -295,6 +311,7 @@ export default function App() {
               onDeleteAssignment={handleDeleteAssignment}
               onToggleAssignment={handleToggleAssignment}
               onStartTimer={handleStartTimer}
+              onSaveSubject={handleSaveSubject}
             />
           )}
 
@@ -330,6 +347,7 @@ export default function App() {
               onSaveExam={handleSaveExam}
               onDeleteExam={handleDeleteExam}
               onStartTimer={handleStartTimer}
+              onSaveSubject={handleSaveSubject}
             />
           )}
 

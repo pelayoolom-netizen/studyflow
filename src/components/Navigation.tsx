@@ -137,19 +137,19 @@ export const Navigation: React.FC<Props> = ({
       {/* MOBILE BOTTOM NAVIGATION BAR (Visible below md)          */}
       {/* ======================================================== */}
       {/* ======================================================== */}
-      {/* MOBILE BOTTOM NAVIGATION BAR (Visible below md)          */}
+      {/* MOBILE BOTTOM NAVIGATION BAR (5 Primary Sections)         */}
       {/* ======================================================== */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0d1017]/95 backdrop-blur-md border-t border-[#1a2230] z-40 safe-bottom">
-        <div className="grid grid-cols-6 items-center px-1 py-1">
+        <div className="grid grid-cols-5 items-center px-1 py-1">
           {/* 1. Mi Día */}
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`flex flex-col items-center justify-center py-1 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
+            className={`flex flex-col items-center justify-center py-1.5 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
               activeTab === 'dashboard' ? 'text-emerald-400 font-bold' : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
             <div className={`p-1 rounded-lg ${activeTab === 'dashboard' ? 'bg-emerald-500/15 text-emerald-400' : ''}`}>
-              <LayoutDashboard className="w-4 h-4" />
+              <LayoutDashboard className="w-5 h-5" />
             </div>
             <span className="mt-0.5 leading-tight truncate">Mi Día</span>
           </button>
@@ -157,12 +157,12 @@ export const Navigation: React.FC<Props> = ({
           {/* 2. Deberes */}
           <button
             onClick={() => setActiveTab('assignments')}
-            className={`flex flex-col items-center justify-center py-1 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
+            className={`flex flex-col items-center justify-center py-1.5 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
               activeTab === 'assignments' ? 'text-emerald-400 font-bold' : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
             <div className={`p-1 rounded-lg ${activeTab === 'assignments' ? 'bg-emerald-500/15 text-emerald-400' : ''}`}>
-              <CheckSquare className="w-4 h-4" />
+              <CheckSquare className="w-5 h-5" />
             </div>
             <span className="mt-0.5 leading-tight truncate">Deberes</span>
           </button>
@@ -170,53 +170,40 @@ export const Navigation: React.FC<Props> = ({
           {/* 3. Calendario */}
           <button
             onClick={() => setActiveTab('calendar')}
-            className={`flex flex-col items-center justify-center py-1 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
+            className={`flex flex-col items-center justify-center py-1.5 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
               activeTab === 'calendar' ? 'text-emerald-400 font-bold' : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
             <div className={`p-1 rounded-lg ${activeTab === 'calendar' ? 'bg-emerald-500/15 text-emerald-400' : ''}`}>
-              <CalendarDays className="w-4 h-4" />
+              <CalendarDays className="w-5 h-5" />
             </div>
-            <span className="mt-0.5 leading-tight truncate">Cal.</span>
+            <span className="mt-0.5 leading-tight truncate">Calendario</span>
           </button>
 
-          {/* 4. Exámenes */}
-          <button
-            onClick={() => setActiveTab('exams')}
-            className={`flex flex-col items-center justify-center py-1 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
-              activeTab === 'exams' ? 'text-emerald-400 font-bold' : 'text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <div className={`p-1 rounded-lg ${activeTab === 'exams' ? 'bg-emerald-500/15 text-emerald-400' : ''}`}>
-              <GraduationCap className="w-4 h-4" />
-            </div>
-            <span className="mt-0.5 leading-tight truncate">Exámenes</span>
-          </button>
-
-          {/* 5. Estudio / Pomodoro */}
+          {/* 4. Pomodoro */}
           <button
             onClick={() => setActiveTab('timer')}
-            className={`flex flex-col items-center justify-center py-1 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
+            className={`flex flex-col items-center justify-center py-1.5 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
               activeTab === 'timer' ? 'text-emerald-400 font-bold' : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
             <div className={`p-1 rounded-lg ${activeTab === 'timer' ? 'bg-emerald-500/15 text-emerald-400' : ''}`}>
-              <Timer className="w-4 h-4" />
+              <Timer className="w-5 h-5" />
             </div>
-            <span className="mt-0.5 leading-tight truncate">Estudio</span>
+            <span className="mt-0.5 leading-tight truncate">Pomodoro</span>
           </button>
 
-          {/* 6. AJUSTES (DIRECTAMENTE VISIBLE Y ACCESIBLE SIEMPRE) */}
+          {/* 5. Analíticas */}
           <button
-            onClick={() => setActiveTab('settings')}
-            className={`flex flex-col items-center justify-center py-1 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
-              activeTab === 'settings' ? 'text-emerald-400 font-bold' : 'text-zinc-400 hover:text-zinc-200'
+            onClick={() => setActiveTab('analytics')}
+            className={`flex flex-col items-center justify-center py-1.5 rounded-xl text-[10px] font-semibold transition cursor-pointer ${
+              activeTab === 'analytics' ? 'text-emerald-400 font-bold' : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            <div className={`p-1 rounded-lg ${activeTab === 'settings' ? 'bg-emerald-500/15 text-emerald-400' : ''}`}>
-              <Settings className="w-4 h-4" />
+            <div className={`p-1 rounded-lg ${activeTab === 'analytics' ? 'bg-emerald-500/15 text-emerald-400' : ''}`}>
+              <BarChart3 className="w-5 h-5" />
             </div>
-            <span className="mt-0.5 leading-tight truncate">Ajustes</span>
+            <span className="mt-0.5 leading-tight truncate">Analíticas</span>
           </button>
         </div>
       </nav>

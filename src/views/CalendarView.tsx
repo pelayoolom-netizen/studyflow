@@ -417,13 +417,24 @@ export const CalendarView: React.FC<Props> = ({
                   })}
                 </h3>
               </div>
-              <button
-                onClick={() => onOpenNewAssignment(selectedDay.toISOString().split('T')[0])}
-                className="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition cursor-pointer"
-                title="Añadir evento a este día"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => onOpenNewAssignment(selectedDay.toISOString().split('T')[0])}
+                  className="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-semibold transition cursor-pointer flex items-center gap-1"
+                  title="Añadir deber a este día"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Deber</span>
+                </button>
+                <button
+                  onClick={() => onOpenNewExam(selectedDay.toISOString().split('T')[0])}
+                  className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-semibold transition cursor-pointer flex items-center gap-1"
+                  title="Añadir examen a este día"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Examen</span>
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2.5 max-h-72 overflow-y-auto">

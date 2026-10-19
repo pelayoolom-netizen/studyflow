@@ -309,7 +309,7 @@ export async function subscribeToPush(): Promise<{ success: boolean; subscriptio
     const applicationServerKey = urlBase64ToUint8Array(publicKey);
     const subscription = await reg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey,
+      applicationServerKey: applicationServerKey as unknown as BufferSource,
     });
 
     localStorage.setItem('studyflow_push_subscription', JSON.stringify(subscription));
